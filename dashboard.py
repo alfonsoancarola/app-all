@@ -690,78 +690,133 @@ def render_dashboard(app_all_dir: Path) -> None:
     st.divider()
 
     # ════════════════════════════════════════════════════════════════════════
-    # 1. Farmer Selling · Ayer · Semana · Pace OC (semanal + 10d)
+    # 1. FS + LDC consolidado por cultivo: ayer, semana, pace, MAT
     # ════════════════════════════════════════════════════════════════════════
-    st.subheader("📅 Farmer Selling · ayer, semana y pace OC")
+    st.subheader("📅 Farmer Selling vs LDC · ayer, semana y pace OC")
+
+    # ── Pre-cargar Recap ────────────────────────────────────────────────
+    recap_file = _latest_recap_file(RECAP_DIR)
+    if recap_file is not None:
+        df_recap = _load_recap_database(str(recap_file), recap_file.stat().st_mtime)
+        df_mat = _load_recap_mat(str(recap_file), recap_file.stat().st_mtime)
+    else:
+        df_recap = pd.DataFrame()
+        df_mat = pd.DataFrame()
+
+    # Rango temporal: semana lunes→ayer; "ayer hábil"
+    week_mon = today - timedelta(days=today.weekday())
+    yesterday_d = today - timedelta(days=1)
+    while yesterday_d.weekday() >= 5:
+        yesterday_d -= timedelta(days=1)
+
+    def _share(part, whole):
+        if whole and whole > 0:
+            return f"{part/whole*100:.1f}%"
+        return "—"
+
+    def _pair_html(fs_val, ldc_val, has_nc_or=True, share_str=None):
+        """Devuelve HTML compacto con FS / LDC lado a lado + share gris claro."""
+        fs_str = f"{_fmt_tn(fs_val)} kt" if has_nc_or else "—"
+        ldc_str = f"{_fmt_tn(ldc_val)} kt" if has_nc_or else "—"
+        share_block = ""
+        if share_str:
+            share_block = (f"<div style='font-size:0.65rem;color:#aaa;"
+                           f"margin-top:0.15rem;letter-spacing:0.5px;'>"
+                           f"share {share_str}</div>")
+        return (
+            "<div style='text-align:center;'>"
+            "<div style='display:flex;justify-content:center;gap:0.6rem;'>"
+            "<div>"
+            "<div style='font-size:0.62rem;color:#888;letter-spacing:1px;'>FS</div>"
+            f"<div style='font-size:0.95rem;font-weight:700;color:#222;'>{fs_str}</div>"
+            "</div>"
+            "<div>"
+            "<div style='font-size:0.62rem;color:#888;letter-spacing:1px;'>LDC</div>"
+            f"<div style='font-size:0.95rem;font-weight:700;color:#1565C0;'>{ldc_str}</div>"
+            "</div>"
+            "</div>"
+            f"{share_block}"
+            "</div>"
+        )
 
     cols = st.columns(len(CULTIVOS))
     yesterday_date_overall = None
     for i, cult in enumerate(CULTIVOS):
-        df = _load_matriz(str(fs_dir), cult["slug"])
+        slug = cult["slug"]
+        df = _load_matriz(str(fs_dir), slug)
         last_row, last_date = _yesterday_row(df, today.year)
         yesterday_date_overall = yesterday_date_overall or last_date
-        if last_row is None:
-            cols[i].metric(f"{cult['emoji']} {cult['label']}", "—")
-            continue
 
-        oc_cols_present = [c for c in cult["oc"] if c in df.columns]
+        oc_cols_present = [c for c in cult["oc"] if c in df.columns] if not df.empty else []
 
-        # AYER (OC / NC)
-        oc_y = sum(int(last_row[c]) for c in oc_cols_present)
-        nc_y = int(last_row["NC"]) if cult["has_nc"] and "NC" in df.columns else 0
+        # ── FS · AYER ─────────────────────────────────────────────────
+        if last_row is not None and oc_cols_present:
+            fs_oc_y = sum(int(last_row[c]) for c in oc_cols_present)
+            fs_nc_y = int(last_row["NC"]) if cult["has_nc"] and "NC" in df.columns else 0
+        else:
+            fs_oc_y = fs_nc_y = 0
 
-        # SEMANA hasta ayer (lun→ayer, sin fin de semana)
-        week_df = _week_to_yesterday_df(df, today.year)
+        # ── FS · SEMANA ───────────────────────────────────────────────
+        week_df = _week_to_yesterday_df(df, today.year) if not df.empty else pd.DataFrame()
         if not week_df.empty and oc_cols_present:
-            oc_w = int(week_df[oc_cols_present].sum().sum())
-            nc_w = int(week_df["NC"].sum()) if cult["has_nc"] and "NC" in week_df.columns else 0
+            fs_oc_w = int(week_df[oc_cols_present].sum().sum())
+            fs_nc_w = int(week_df["NC"].sum()) if cult["has_nc"] and "NC" in week_df.columns else 0
             week_n = len(week_df)
         else:
-            oc_w = nc_w = week_n = 0
+            fs_oc_w = fs_nc_w = week_n = 0
 
-        # PACE OC · semana = sum_OC / N días hábiles transcurridos
-        pace_w = int(round(oc_w / week_n)) if week_n > 0 else 0
-
-        # PACE OC · 10d = avg de los últimos 10 días hábiles
-        # (calculado sobre toda la matriz, no solo mes en curso)
-        daily_all = df[df["tipo"] == "diario"].copy()
-        daily_all["fecha"] = daily_all["label"].apply(
-            lambda s: _parse_dia_label(s, today.year)
-        )
-        daily_all = daily_all.dropna(subset=["fecha"]).sort_values("fecha")
-        today_ts = pd.Timestamp(today)
-        past = daily_all[daily_all["fecha"] < today_ts].tail(10)
-        if len(past) > 0 and oc_cols_present:
-            pace_10d = int(round(past[oc_cols_present].sum(axis=1).mean()))
-            pace_10d_n = len(past)
+        # ── FS · Pace OC ──────────────────────────────────────────────
+        pace_w = int(round(fs_oc_w / week_n)) if week_n > 0 else 0
+        daily_all = df[df["tipo"] == "diario"].copy() if not df.empty else pd.DataFrame()
+        if not daily_all.empty:
+            daily_all["fecha"] = daily_all["label"].apply(
+                lambda s: _parse_dia_label(s, today.year)
+            )
+            daily_all = daily_all.dropna(subset=["fecha"]).sort_values("fecha")
+            past = daily_all[daily_all["fecha"] < pd.Timestamp(today)].tail(10)
+            if len(past) > 0 and oc_cols_present:
+                pace_10d = int(round(past[oc_cols_present].sum(axis=1).mean()))
+            else:
+                pace_10d = 0
         else:
             pace_10d = 0
-            pace_10d_n = 0
+
+        # ── LDC (Recap) · AYER y SEMANA ──────────────────────────────
+        ag_yest = _recap_compras_agg(df_recap, slug, yesterday_d, yesterday_d)
+        ag_week = _recap_compras_agg(df_recap, slug, week_mon, yesterday_d)
+        mat_week = _recap_mat_agg(df_mat, slug, week_mon, yesterday_d)
+
+        # Share LDC / FS
+        share_oc_y = _share(ag_yest["oc"], fs_oc_y)
+        share_nc_y = _share(ag_yest["nc"], fs_nc_y) if cult["has_nc"] else None
+        share_oc_w = _share(ag_week["oc"], fs_oc_w)
+        share_nc_w = _share(ag_week["nc"], fs_nc_w) if cult["has_nc"] else None
 
         with cols[i]:
+            # Header
             st.markdown(
                 f"<div style='font-weight:600;font-size:1rem;text-align:center;"
                 f"margin-bottom:0.3rem;'>{cult['emoji']} {cult['label']}</div>",
                 unsafe_allow_html=True,
             )
 
-            # AYER (OC / NC)
+            # ── AYER ──────────────────────────────────────────────────
             st.markdown(
-                f"<div style='text-align:center;font-size:0.75rem;"
-                f"color:#888;letter-spacing:1px;margin-top:0.3rem;'>AYER</div>",
+                "<div style='text-align:center;font-size:0.72rem;color:#888;"
+                "letter-spacing:1px;margin-top:0.3rem;'>AYER</div>",
                 unsafe_allow_html=True,
             )
             sub_l, sub_r = st.columns(2)
             sub_l.markdown(
-                f"<div style='font-size:0.78rem;color:#666;text-align:center;'>"
-                f"OC<br><span style='font-size:1.05rem;font-weight:700;color:#222;'>"
-                f"{_fmt_tn(oc_y)} kt</span></div>",
+                "<div style='font-size:0.7rem;color:#666;text-align:center;"
+                "letter-spacing:0.5px;margin-bottom:0.15rem;'>OC</div>"
+                + _pair_html(fs_oc_y, ag_yest["oc"], True, share_oc_y),
                 unsafe_allow_html=True,
             )
             sub_r.markdown(
-                f"<div style='font-size:0.78rem;color:#666;text-align:center;'>"
-                f"NC<br><span style='font-size:1.05rem;font-weight:700;color:#222;'>"
-                f"{_fmt_tn(nc_y) + ' kt' if cult['has_nc'] else '—'}</span></div>",
+                "<div style='font-size:0.7rem;color:#666;text-align:center;"
+                "letter-spacing:0.5px;margin-bottom:0.15rem;'>NC</div>"
+                + _pair_html(fs_nc_y, ag_yest["nc"], cult["has_nc"], share_nc_y),
                 unsafe_allow_html=True,
             )
 
@@ -772,24 +827,23 @@ def render_dashboard(app_all_dir: Path) -> None:
                 unsafe_allow_html=True,
             )
 
-            # SEMANA (OC / NC)
+            # ── SEMANA ────────────────────────────────────────────────
             st.markdown(
-                f"<div style='text-align:center;font-size:0.75rem;"
-                f"color:#888;letter-spacing:1px;'>"
-                f"SEMANA ({week_n}d)</div>",
+                f"<div style='text-align:center;font-size:0.72rem;color:#888;"
+                f"letter-spacing:1px;'>SEMANA ({week_n}d)</div>",
                 unsafe_allow_html=True,
             )
             sub_l, sub_r = st.columns(2)
             sub_l.markdown(
-                f"<div style='font-size:0.78rem;color:#666;text-align:center;'>"
-                f"OC<br><span style='font-size:1.05rem;font-weight:700;color:#222;'>"
-                f"{_fmt_tn(oc_w)} kt</span></div>",
+                "<div style='font-size:0.7rem;color:#666;text-align:center;"
+                "letter-spacing:0.5px;margin-bottom:0.15rem;'>OC</div>"
+                + _pair_html(fs_oc_w, ag_week["oc"], True, share_oc_w),
                 unsafe_allow_html=True,
             )
             sub_r.markdown(
-                f"<div style='font-size:0.78rem;color:#666;text-align:center;'>"
-                f"NC<br><span style='font-size:1.05rem;font-weight:700;color:#222;'>"
-                f"{_fmt_tn(nc_w) + ' kt' if cult['has_nc'] else '—'}</span></div>",
+                "<div style='font-size:0.7rem;color:#666;text-align:center;"
+                "letter-spacing:0.5px;margin-bottom:0.15rem;'>NC</div>"
+                + _pair_html(fs_nc_w, ag_week["nc"], cult["has_nc"], share_nc_w),
                 unsafe_allow_html=True,
             )
 
@@ -800,197 +854,69 @@ def render_dashboard(app_all_dir: Path) -> None:
                 unsafe_allow_html=True,
             )
 
-            # PACE OC (semana / 10d) — solo OC
+            # ── PACE OC (solo FS, no aplica al LDC porque queremos
+            #    saber el ritmo del mercado) ────────────────────────────
             st.markdown(
-                f"<div style='text-align:center;font-size:0.75rem;"
-                f"color:#888;letter-spacing:1px;'>PACE · OC</div>",
+                "<div style='text-align:center;font-size:0.72rem;color:#888;"
+                "letter-spacing:1px;'>PACE FS · OC</div>",
                 unsafe_allow_html=True,
             )
             sub_l, sub_r = st.columns(2)
             sub_l.markdown(
-                f"<div style='font-size:0.72rem;color:#666;text-align:center;'>"
+                f"<div style='font-size:0.7rem;color:#666;text-align:center;'>"
                 f"Semana<br><span style='font-size:1rem;font-weight:600;color:#1D9E75;'>"
-                f"{_fmt_tn(pace_w)}<span style='font-size:0.7rem;color:#888;'> kt/d</span>"
+                f"{_fmt_tn(pace_w)}<span style='font-size:0.65rem;color:#888;'> kt/d</span>"
                 f"</span></div>",
                 unsafe_allow_html=True,
             )
             sub_r.markdown(
-                f"<div style='font-size:0.72rem;color:#666;text-align:center;'>"
+                f"<div style='font-size:0.7rem;color:#666;text-align:center;'>"
                 f"10d<br><span style='font-size:1rem;font-weight:600;color:#1D9E75;'>"
-                f"{_fmt_tn(pace_10d)}<span style='font-size:0.7rem;color:#888;'> kt/d</span>"
+                f"{_fmt_tn(pace_10d)}<span style='font-size:0.65rem;color:#888;'> kt/d</span>"
                 f"</span></div>",
                 unsafe_allow_html=True,
             )
 
+            # Separador
+            st.markdown(
+                "<hr style='margin:0.6rem 0 0.4rem 0;border:none;"
+                "border-top:1px solid rgba(0,0,0,0.08);'/>",
+                unsafe_allow_html=True,
+            )
+
+            # ── LDC MAT · SEMANA ──────────────────────────────────────
+            st.markdown(
+                "<div style='text-align:center;font-size:0.72rem;color:#888;"
+                "letter-spacing:1px;'>LDC MAT · SEMANA</div>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"<div style='text-align:center;font-size:1rem;font-weight:600;"
+                f"color:#7B1FA2;'>{_fmt_tn(mat_week)} kt</div>",
+                unsafe_allow_html=True,
+            )
+
+    # ── Caption combinado ──────────────────────────────────────────────
+    caption_parts = []
     if yesterday_date_overall:
-        st.caption(
-            f"Datos al cierre de **{yesterday_date_overall.strftime('%d %b %Y')}**. "
-            f"Semana = lunes→ayer (sin fin de semana). "
-            f"Pace OC · Semana = ΣOC / días transcurridos; "
-            f"Pace OC · 10d = avg OC de los últimos 10 días hábiles."
+        caption_parts.append(
+            f"FS al cierre de **{yesterday_date_overall.strftime('%d %b %Y')}**"
         )
-
-    # FS por cultivo para computar share — capturamos los valores aquí
-    fs_oc_week_by_slug = {}
-    fs_nc_week_by_slug = {}
-    fs_oc_yest_by_slug = {}
-    fs_nc_yest_by_slug = {}
-    for cult in CULTIVOS:
-        df_cult = _load_matriz(str(fs_dir), cult["slug"])
-        if df_cult.empty:
-            fs_oc_week_by_slug[cult["slug"]] = 0
-            fs_nc_week_by_slug[cult["slug"]] = 0
-            fs_oc_yest_by_slug[cult["slug"]] = 0
-            fs_nc_yest_by_slug[cult["slug"]] = 0
-            continue
-        last_row_c, _ = _yesterday_row(df_cult, today.year)
-        week_df_c = _week_to_yesterday_df(df_cult, today.year)
-        oc_cols_c = [c for c in cult["oc"] if c in df_cult.columns]
-        if last_row_c is not None and oc_cols_c:
-            fs_oc_yest_by_slug[cult["slug"]] = sum(int(last_row_c[c]) for c in oc_cols_c)
-            fs_nc_yest_by_slug[cult["slug"]] = (
-                int(last_row_c["NC"]) if cult["has_nc"] and "NC" in df_cult.columns else 0
-            )
-        else:
-            fs_oc_yest_by_slug[cult["slug"]] = 0
-            fs_nc_yest_by_slug[cult["slug"]] = 0
-        if not week_df_c.empty and oc_cols_c:
-            fs_oc_week_by_slug[cult["slug"]] = int(week_df_c[oc_cols_c].sum().sum())
-            fs_nc_week_by_slug[cult["slug"]] = (
-                int(week_df_c["NC"].sum())
-                if cult["has_nc"] and "NC" in week_df_c.columns else 0
-            )
-        else:
-            fs_oc_week_by_slug[cult["slug"]] = 0
-            fs_nc_week_by_slug[cult["slug"]] = 0
-
-    st.divider()
-
-    # ════════════════════════════════════════════════════════════════════════
-    # 1B. Nuestras compras (Recap Totalizado) + share vs FS
-    # ════════════════════════════════════════════════════════════════════════
-    st.subheader("🏢 Nuestras compras · ayer y semana (share vs FS)")
-
-    recap_file = _latest_recap_file(RECAP_DIR)
+    if recap_file is not None:
+        caption_parts.append(
+            f"LDC del Recap **{recap_file.name}** "
+            f"({pd.Timestamp(recap_file.stat().st_mtime, unit='s').strftime('%d/%m %H:%M')})"
+        )
+    caption_parts.append(
+        "Semana = lunes→ayer · share = LDC / FS · Compras LDC = "
+        "COMPRAS A PRECIO + FIJACIONES + PAF + AMPLIACION (+) + ANULACION (−)"
+    )
     if recap_file is None:
         st.info(
-            f"No encontré ningún `RecapTotalizado *.xlsx` en `{RECAP_DIR}`. "
-            "Si lo moviste, exportá `RECAP_DIR=/ruta/...` antes de lanzar la app."
+            f"No encontré `RecapTotalizado *.xlsx` en `{RECAP_DIR}`. "
+            "Exportá `RECAP_DIR=/ruta/...` antes de lanzar la app si la moviste."
         )
-    else:
-        df_recap = _load_recap_database(str(recap_file), recap_file.stat().st_mtime)
-        df_mat = _load_recap_mat(str(recap_file), recap_file.stat().st_mtime)
-
-        # Rango: semana corriente (lun→ayer)
-        week_mon = today - timedelta(days=today.weekday())
-        yesterday_d = today - timedelta(days=1)
-        # Si hoy es lunes, "ayer" = viernes pasado; recortamos a sólo lun-vie
-        while yesterday_d.weekday() >= 5:
-            yesterday_d -= timedelta(days=1)
-
-        rc_cols = st.columns(len(CULTIVOS))
-        for i, cult in enumerate(CULTIVOS):
-            slug = cult["slug"]
-            # Compras propias del cultivo
-            ag_yest = _recap_compras_agg(df_recap, slug, yesterday_d, yesterday_d)
-            ag_week = _recap_compras_agg(df_recap, slug, week_mon, yesterday_d)
-            mat_week = _recap_mat_agg(df_mat, slug, week_mon, yesterday_d)
-
-            # Share = nuestras / FS × 100. FS está en tn también.
-            def _share(part, whole):
-                if whole and whole > 0:
-                    return f"{part/whole*100:.1f}%"
-                return "—"
-
-            share_oc_y = _share(ag_yest["oc"], fs_oc_yest_by_slug.get(slug, 0))
-            share_oc_w = _share(ag_week["oc"], fs_oc_week_by_slug.get(slug, 0))
-            share_nc_w = _share(ag_week["nc"], fs_nc_week_by_slug.get(slug, 0))
-
-            with rc_cols[i]:
-                st.markdown(
-                    f"<div style='font-weight:600;font-size:1rem;text-align:center;"
-                    f"margin-bottom:0.3rem;'>{cult['emoji']} {cult['label']}</div>",
-                    unsafe_allow_html=True,
-                )
-
-                # AYER
-                st.markdown(
-                    f"<div style='text-align:center;font-size:0.75rem;color:#888;"
-                    f"letter-spacing:1px;'>AYER</div>",
-                    unsafe_allow_html=True,
-                )
-                sl, sr = st.columns(2)
-                sl.markdown(
-                    f"<div style='font-size:0.78rem;color:#666;text-align:center;'>"
-                    f"OC<br><span style='font-size:1.05rem;font-weight:700;color:#222;'>"
-                    f"{_fmt_tn(ag_yest['oc'])} kt</span>"
-                    f"<br><span style='font-size:0.7rem;color:#1565C0;'>share {share_oc_y}</span>"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-                sr.markdown(
-                    f"<div style='font-size:0.78rem;color:#666;text-align:center;'>"
-                    f"NC<br><span style='font-size:1.05rem;font-weight:700;color:#222;'>"
-                    f"{_fmt_tn(ag_yest['nc'])} kt</span>"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-
-                # Separador
-                st.markdown(
-                    "<hr style='margin:0.6rem 0 0.4rem 0;border:none;"
-                    "border-top:1px solid rgba(0,0,0,0.08);'/>",
-                    unsafe_allow_html=True,
-                )
-
-                # SEMANA
-                st.markdown(
-                    f"<div style='text-align:center;font-size:0.75rem;color:#888;"
-                    f"letter-spacing:1px;'>SEMANA</div>",
-                    unsafe_allow_html=True,
-                )
-                sl, sr = st.columns(2)
-                sl.markdown(
-                    f"<div style='font-size:0.78rem;color:#666;text-align:center;'>"
-                    f"OC<br><span style='font-size:1.05rem;font-weight:700;color:#222;'>"
-                    f"{_fmt_tn(ag_week['oc'])} kt</span>"
-                    f"<br><span style='font-size:0.7rem;color:#1565C0;'>share {share_oc_w}</span>"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-                sr.markdown(
-                    f"<div style='font-size:0.78rem;color:#666;text-align:center;'>"
-                    f"NC<br><span style='font-size:1.05rem;font-weight:700;color:#222;'>"
-                    f"{_fmt_tn(ag_week['nc'])} kt</span>"
-                    f"<br><span style='font-size:0.7rem;color:#1565C0;'>share {share_nc_w}</span>"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-
-                # MAT
-                st.markdown(
-                    "<hr style='margin:0.6rem 0 0.4rem 0;border:none;"
-                    "border-top:1px solid rgba(0,0,0,0.08);'/>",
-                    unsafe_allow_html=True,
-                )
-                st.markdown(
-                    f"<div style='text-align:center;font-size:0.75rem;color:#888;"
-                    f"letter-spacing:1px;'>MAT · SEMANA</div>",
-                    unsafe_allow_html=True,
-                )
-                st.markdown(
-                    f"<div style='text-align:center;font-size:1rem;font-weight:600;"
-                    f"color:#7B1FA2;'>{_fmt_tn(mat_week)} kt</div>",
-                    unsafe_allow_html=True,
-                )
-
-        st.caption(
-            f"Recap: **{recap_file.name}** "
-            f"(actualizado {pd.Timestamp(recap_file.stat().st_mtime, unit='s').strftime('%d/%m %H:%M')}). "
-            f"Compras = COMPRAS A PRECIO + FIJACIONES COMPRA + FAS EN PREMIO + COMPRAS PAF "
-            f"+ AMPLIACION (+) + ANULACION (−, con signo del Recap). "
-            f"Share = nuestras / Farmer Selling del mismo período."
-        )
+    st.caption(" · ".join(caption_parts))
 
     st.divider()
 
