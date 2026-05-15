@@ -1284,11 +1284,8 @@ if IS_ALL_CROPS:
                             "<thead><tr>"
                             "<th>Contrato</th>"
                             "<th>MAT / Pizarra<br/><span style='font-weight:400;text-transform:none;letter-spacing:0;color:#999'>USD/tn</span></th>"
-                            f"<th>FOB equiv.<br/><span style='font-weight:400;text-transform:none;letter-spacing:0;color:#999'>"
-                            f"Piz + {_elev:.0f} + Min×{_ret*100:.1f}%</span></th>"
-                            "<th>Min FOB<br/><span style='font-weight:400;text-transform:none;letter-spacing:0;color:#999'>USD/tn</span></th>"
-                            "<th>CBOT match</th>"
                         )
+                        # CBOT + Repl arrancan después de MAT
                         for _v in _cbot_views:
                             _vlbl = f" {_v['label']}" if _v['label'] else ""
                             h.append(
@@ -1297,6 +1294,13 @@ if IS_ALL_CROPS:
                                 f"<th>Repl{_vlbl}<br/><span style='font-weight:400;"
                                 f"text-transform:none;letter-spacing:0;color:#999'>¢/bu</span></th>"
                             )
+                        # Después: FOB equiv · Min FOB · CBOT match
+                        h.append(
+                            f"<th>FOB equiv.<br/><span style='font-weight:400;text-transform:none;letter-spacing:0;color:#999'>"
+                            f"Piz + {_elev:.0f} + Min×{_ret*100:.1f}%</span></th>"
+                            "<th>Min FOB<br/><span style='font-weight:400;text-transform:none;letter-spacing:0;color:#999'>USD/tn</span></th>"
+                            "<th>CBOT match</th>"
+                        )
                         h.append("</tr></thead>")
                     h.append("<tbody>")
                     for r in rows:
@@ -1307,27 +1311,7 @@ if IS_ALL_CROPS:
                         _mat_d = _deltas_html(r['mat'], r.get('mat_prev'),
                                               r.get('mat_wow'), r.get('mat_mom'), 2)
                         h.append(f"<td>{r['mat']:.2f}{_mat_d}</td>")
-                        # FOB equiv. (USD/tn) + DoD/WoW/MoM
-                        if r.get("fob") is not None:
-                            _fob_d = _deltas_html(r['fob'], r.get('fob_prev'),
-                                                  r.get('fob_wow'), r.get('fob_mom'), 1)
-                            h.append(f"<td>{r['fob']:.1f}{_fob_d}</td>")
-                        else:
-                            h.append("<td class='muted'>—</td>")
-                        # Min FOB (USD/tn) + DoD/WoW/MoM
-                        if r.get("min") is not None:
-                            _min_d = _deltas_html(r['min'], r.get('min_prev'),
-                                                  r.get('min_wow'), r.get('min_mom'), 0)
-                            h.append(
-                                f"<td>{r['min']:.0f}"
-                                f" <span class='min-tag'>({r['min_lbl']})</span>"
-                                f"{_min_d}</td>"
-                            )
-                        else:
-                            h.append("<td class='muted'>—</td>")
-                        # CBOT month label (no DoD)
-                        h.append(f"<td class='muted'>{r['cbot_key'] or '—'}</td>")
-                        # For each CBOT view: CBOT (¢/bu) + Repl (¢/bu)
+                        # CBOT + Repl (uno o varios pares según la cantidad de views)
                         for v in r.get("views", []):
                             _c_cts      = (v['cbot']      * 100 / _bu) if v['cbot']      is not None else None
                             _c_cts_prev = (v['cbot_prev'] * 100 / _bu) if v.get('cbot_prev') is not None else None
@@ -1349,6 +1333,26 @@ if IS_ALL_CROPS:
                                 )
                             else:
                                 h.append("<td class='muted'>—</td>")
+                        # FOB equiv. (USD/tn) + DoD/WoW/MoM
+                        if r.get("fob") is not None:
+                            _fob_d = _deltas_html(r['fob'], r.get('fob_prev'),
+                                                  r.get('fob_wow'), r.get('fob_mom'), 1)
+                            h.append(f"<td>{r['fob']:.1f}{_fob_d}</td>")
+                        else:
+                            h.append("<td class='muted'>—</td>")
+                        # Min FOB (USD/tn) + DoD/WoW/MoM
+                        if r.get("min") is not None:
+                            _min_d = _deltas_html(r['min'], r.get('min_prev'),
+                                                  r.get('min_wow'), r.get('min_mom'), 0)
+                            h.append(
+                                f"<td>{r['min']:.0f}"
+                                f" <span class='min-tag'>({r['min_lbl']})</span>"
+                                f"{_min_d}</td>"
+                            )
+                        else:
+                            h.append("<td class='muted'>—</td>")
+                        # CBOT month label (no DoD) — queda al final
+                        h.append(f"<td class='muted'>{r['cbot_key'] or '—'}</td>")
                         h.append("</tr>")
                     h.append("</tbody></table>")
                     return "".join(h)
