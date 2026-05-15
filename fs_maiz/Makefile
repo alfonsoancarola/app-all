@@ -171,6 +171,12 @@ minagri: .venv
 pizarra: .venv
 	@$(PY) -m scrapers.bcr_boletin --pizarra-only
 
+# Refresca TODO lo de precios desde el boletín BCR: pizarra + MAT + CBOT + MINAGRI.
+# Tarda ~10 seg (baja el PDF del día). NO toca matrices ni SIO.
+# Usalo cuando querés ver replacement actualizado sin esperar el cron.
+precios: .venv
+	@$(PY) -m scrapers.bcr_boletin
+
 update: .venv
 	@if [ -z "$(SIO)" ]; then \
 	  echo "Falta SIO=... Ejemplo:  make update SIO=~/Downloads/sio.csv"; exit 2; \

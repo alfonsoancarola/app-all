@@ -2,6 +2,38 @@
 
 Resumen de todos los comandos operativos. Copiar-pegar friendly.
 
+> 💡 **Atajo:** hay un `Makefile` en la raíz con casi todo lo de abajo
+> envuelto. Tipeá `make` (sin args) en `10. App All/` para ver el help.
+
+## ⚡ Atajos del Makefile (recomendado)
+
+```bash
+cd "/Users/alfonsoancarola/10. App All"
+
+make help            # Lista todos los comandos disponibles
+make status          # Muestra cuándo se actualizó cada fuente de data
+
+# Correr la app
+make run             # Streamlit local
+make ngrok           # Streamlit + ngrok tunnel
+
+# Refrescar inputs (delegan a fs_maiz/)
+make daily           # FS completo (~5 min)
+make precios         # Pizarra + MAT + CBOT + MINAGRI (~10s)
+make pizarra         # Solo pizarra CAC (~5s)
+make sio             # Solo SIO
+make minagri         # Chequear MAGYP
+
+# Procesar Recap LDC
+make recap CONSO=RecapConsolidadoFOB_15-05-2026.xls
+
+# Git push rápido
+make push MSG="lo que cambiaste"
+```
+
+Los `make` de arriba delegan a los scripts originales — todo lo de
+abajo sigue funcionando igual si preferís los comandos largos.
+
 ## 🚀 Correr la app
 
 ```bash
@@ -26,8 +58,11 @@ cd "/Users/alfonsoancarola/10. App All/fs_maiz"
 # Pipeline completo (~3-5 min)
 make daily
 
-# Solo precios (pizarra + MAT + CBOT) — rápido, ~5 seg
+# Solo pizarra CAC (intra-día rápido, no toca MAT/CBOT/MINAGRI) — ~5 seg
 make pizarra
+
+# Refrescar TODOS los precios del dashboard (pizarra + MAT + CBOT + MINAGRI) — ~10 seg
+make precios
 
 # Solo SIO (sin merge, sin matrices)
 make sio

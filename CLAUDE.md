@@ -212,8 +212,9 @@ source .venv/bin/activate
 streamlit run app_all.py
 
 # Pipeline diario manual (refresca data FS)
-cd fs_maiz && make daily             # ~5 min, full pipeline
-cd fs_maiz && make pizarra           # ~5 seg, solo pizarra
+cd fs_maiz && make daily             # ~5 min, full pipeline (SIO + MAGYP + matrices + precios)
+cd fs_maiz && make precios           # ~10 seg, solo precios del boletín BCR (pizarra + MAT + CBOT + MINAGRI)
+cd fs_maiz && make pizarra           # ~5 seg, solo pizarra CAC intra-día
 
 # Forzar el cron a correr ahora
 launchctl start com.$(whoami).fsmaiz

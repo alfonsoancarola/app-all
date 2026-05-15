@@ -621,12 +621,26 @@ def render_dashboard(app_all_dir: Path) -> None:
         except Exception:
             cbot_as_of_short = str(cbot_as_of)
 
+    def _mini_row(label: str, value_html: str, sub_html: str = "") -> str:
+        """Fila chiquita en la card de precios: label arriba, valor abajo, sub opcional."""
+        sub = (f"<div style='font-size:0.62rem;color:#999;line-height:1;'>{sub_html}</div>"
+               if sub_html else "")
+        return (
+            "<div style='margin-top:0.45rem;'>"
+            f"<div style='font-size:0.65rem;color:#888;letter-spacing:1px;'>{label}</div>"
+            f"<div style='font-size:1.05rem;font-weight:600;color:#222;line-height:1.15;'>"
+            f"{value_html}</div>"
+            f"{sub}"
+            "</div>"
+        )
+
     piz_cols = st.columns(len(CULTIVOS))
     for i, cult in enumerate(CULTIVOS):
-        piz_obj = (prices_top.get("pizarra_usd_tn", {}).get(cult["slug"]) or {})
+        slug = cult["slug"]
+        piz_obj = (prices_top.get("pizarra_usd_tn", {}).get(slug) or {})
         piz_today = piz_obj.get("today")
         piz_yest = piz_obj.get("yesterday")
-        rep = _compute_replacement(cult["slug"], prices_top, today)
+        rep = _compute_replacement(slug, prices_top, today)
 
         delta_dod = ""
         if piz_today is not None and piz_yest is not None and piz_yest != 0:
@@ -635,9 +649,25 @@ def render_dashboard(app_all_dir: Path) -> None:
             delta_dod = (f"<span style='font-size:0.72rem;color:{color};'>"
                          f"{dod_pct:+.1f}% DoD</span>")
 
-        # Maíz: replacement vs CBOT en ¢/bu (pos = above CBOT)
-        # Resto: replacement = FOB equivalente en USD/tn (sin CBOT)
-        if cult["slug"] == "maiz":
+        # ── MAT front month (primer contrato disponible en mat_usd_tn) ─────
+        mat_obj = (prices_top.get("mat_usd_tn", {}).get(slug) or {})
+        # Excluir la key "as_of" si está
+        mat_contracts = {k: v for k, v in mat_obj.items()
+                         if isinstance(v, (int, float)) and k != "as_of"}
+        if mat_contracts:
+            mat_front_key = next(iter(mat_contracts.keys()))
+            mat_front_val = mat_contracts[mat_front_key]
+        else:
+            mat_front_key, mat_front_val = None, None
+
+        # ── CBOT (solo maíz: next cycle del ciclo H/K/N/U/Z) ───────────────
+        # rep["cbot_contract"] solo se llena para maíz dentro de _compute_replacement
+        cbot_usd_tn = rep.get("cbot_usd_tn")
+        cbot_contract = rep.get("cbot_contract")
+        cbot_cents_bu = rep.get("cbot_cents_bu")
+
+        # ── Replacement display ────────────────────────────────────────────
+        if slug == "maiz":
             repl = rep["repl_cents_bu"]
             if repl is None:
                 repl_str = "—"
@@ -647,8 +677,6 @@ def render_dashboard(app_all_dir: Path) -> None:
                 repl_str = f"{repl:+.1f}¢"
                 repl_color = "#1d6e51" if repl >= 0 else "#a32d2d"
                 repl_unit = " /bu"
-            _cbot_date_suffix = f" · close {cbot_as_of_short}" if cbot_as_of_short else ""
-            repl_sub = f"vs CBOT {rep['cbot_contract'] or '—'}{_cbot_date_suffix}"
         else:
             repl_usd = rep["repl_usd_tn"]
             if repl_usd is None:
@@ -659,12 +687,12 @@ def render_dashboard(app_all_dir: Path) -> None:
                 repl_str = _fmt_usd(repl_usd)
                 repl_color = "#222"
                 repl_unit = " /tn"
-            repl_sub = "pizarra + MINAGRI×ret + elev"
 
         with piz_cols[i]:
+            # ── HEADER + PIZARRA grande ────────────────────────────────
             st.markdown(
                 f"""
-                <div style='text-align:center;padding:0.5rem 0.3rem;'>
+                <div style='text-align:center;padding:0.4rem 0.2rem 0 0.2rem;'>
                     <div style='font-weight:600;font-size:0.95rem;margin-bottom:0.3rem;'>
                         {cult['emoji']} {cult['label']}
                     </div>
@@ -673,19 +701,45 @@ def render_dashboard(app_all_dir: Path) -> None:
                         {_fmt_usd(piz_today) if piz_today is not None else '—'}<span style='font-size:0.7rem;color:#888;'> /tn</span>
                     </div>
                     <div>{delta_dod}</div>
-                    <div style='margin-top:0.45rem;font-size:0.7rem;color:#888;letter-spacing:1px;'>
-                        REPLACEMENT
-                    </div>
-                    <div style='font-size:1.2rem;font-weight:600;color:{repl_color};line-height:1.1;'>
-                        {repl_str}<span style='font-size:0.7rem;color:#888;'>{repl_unit}</span>
-                    </div>
-                    <div style='font-size:0.7rem;color:#888;'>
-                        {repl_sub}
-                    </div>
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
+
+            # ── MAT ────────────────────────────────────────────────────
+            if mat_front_val is not None:
+                mat_html = _mini_row(
+                    f"MAT {mat_front_key}",
+                    f"{_fmt_usd(mat_front_val)}<span style='font-size:0.7rem;color:#888;'> /tn</span>",
+                )
+            else:
+                mat_html = _mini_row("MAT", "—")
+            st.markdown(f"<div style='text-align:center;'>{mat_html}</div>",
+                        unsafe_allow_html=True)
+
+            # ── CBOT (solo maíz) ───────────────────────────────────────
+            if slug == "maiz":
+                if cbot_cents_bu is not None:
+                    cbot_sub = (f"{_fmt_usd(cbot_usd_tn)} /tn · close {cbot_as_of_short}"
+                                if cbot_as_of_short else f"{_fmt_usd(cbot_usd_tn)} /tn")
+                    cbot_html = _mini_row(
+                        f"CBOT {cbot_contract}",
+                        f"{cbot_cents_bu:.1f}<span style='font-size:0.7rem;color:#888;'> ¢/bu</span>",
+                        cbot_sub,
+                    )
+                else:
+                    cbot_html = _mini_row(f"CBOT {cbot_contract or ''}", "—")
+                st.markdown(f"<div style='text-align:center;'>{cbot_html}</div>",
+                            unsafe_allow_html=True)
+
+            # ── REPLACEMENT ────────────────────────────────────────────
+            repl_value = (
+                f"<span style='color:{repl_color};'>{repl_str}</span>"
+                f"<span style='font-size:0.7rem;color:#888;'>{repl_unit}</span>"
+            )
+            repl_html = _mini_row("REPLACEMENT", repl_value)
+            st.markdown(f"<div style='text-align:center;'>{repl_html}</div>",
+                        unsafe_allow_html=True)
 
     st.divider()
 
