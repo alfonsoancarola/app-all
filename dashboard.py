@@ -688,58 +688,94 @@ def render_dashboard(app_all_dir: Path) -> None:
                 repl_color = "#222"
                 repl_unit = " /tn"
 
+        # Construir HTMLs de cada bloque (mismo formato para grilla 2×2)
+        piz_value = (
+            f"{_fmt_usd(piz_today)}<span style='font-size:0.65rem;color:#888;'> /tn</span>"
+            if piz_today is not None else "—"
+        )
+        piz_html = (
+            "<div style='text-align:center;'>"
+            "<div style='font-size:0.65rem;color:#888;letter-spacing:1px;'>PIZARRA</div>"
+            f"<div style='font-size:1.05rem;font-weight:700;color:#222;line-height:1.15;'>"
+            f"{piz_value}</div>"
+            f"<div style='font-size:0.62rem;line-height:1;'>{delta_dod}</div>"
+            "</div>"
+        )
+
+        if mat_front_val is not None:
+            mat_html = (
+                "<div style='text-align:center;'>"
+                f"<div style='font-size:0.65rem;color:#888;letter-spacing:1px;'>MAT {mat_front_key}</div>"
+                f"<div style='font-size:1.05rem;font-weight:700;color:#222;line-height:1.15;'>"
+                f"{_fmt_usd(mat_front_val)}<span style='font-size:0.65rem;color:#888;'> /tn</span></div>"
+                "</div>"
+            )
+        else:
+            mat_html = (
+                "<div style='text-align:center;'>"
+                "<div style='font-size:0.65rem;color:#888;letter-spacing:1px;'>MAT</div>"
+                "<div style='font-size:1.05rem;font-weight:600;color:#888;line-height:1.15;'>—</div>"
+                "</div>"
+            )
+
+        # CBOT (solo maíz)
+        if slug == "maiz" and cbot_cents_bu is not None:
+            cbot_sub = (f"{_fmt_usd(cbot_usd_tn)} /tn · close {cbot_as_of_short}"
+                        if cbot_as_of_short else f"{_fmt_usd(cbot_usd_tn)} /tn")
+            cbot_html = (
+                "<div style='text-align:center;'>"
+                f"<div style='font-size:0.65rem;color:#888;letter-spacing:1px;'>CBOT {cbot_contract}</div>"
+                f"<div style='font-size:1.05rem;font-weight:700;color:#222;line-height:1.15;'>"
+                f"{cbot_cents_bu:.1f}<span style='font-size:0.65rem;color:#888;'> ¢/bu</span></div>"
+                f"<div style='font-size:0.6rem;color:#999;line-height:1;'>{cbot_sub}</div>"
+                "</div>"
+            )
+        else:
+            cbot_html = None  # los demás cultivos no tienen CBOT
+
+        # REPLACEMENT
+        repl_html = (
+            "<div style='text-align:center;'>"
+            "<div style='font-size:0.65rem;color:#888;letter-spacing:1px;'>REPLACEMENT</div>"
+            f"<div style='font-size:1.05rem;font-weight:700;color:{repl_color};line-height:1.15;'>"
+            f"{repl_str}<span style='font-size:0.65rem;color:#888;'>{repl_unit}</span></div>"
+            "</div>"
+        )
+
         with piz_cols[i]:
-            # ── HEADER + PIZARRA grande ────────────────────────────────
+            # Header del cultivo
             st.markdown(
-                f"""
-                <div style='text-align:center;padding:0.4rem 0.2rem 0 0.2rem;'>
-                    <div style='font-weight:600;font-size:0.95rem;margin-bottom:0.3rem;'>
-                        {cult['emoji']} {cult['label']}
-                    </div>
-                    <div style='font-size:0.7rem;color:#888;letter-spacing:1px;'>PIZARRA</div>
-                    <div style='font-size:1.5rem;font-weight:700;color:#222;line-height:1.1;'>
-                        {_fmt_usd(piz_today) if piz_today is not None else '—'}<span style='font-size:0.7rem;color:#888;'> /tn</span>
-                    </div>
-                    <div>{delta_dod}</div>
-                </div>
-                """,
+                f"<div style='font-weight:600;font-size:0.95rem;text-align:center;"
+                f"margin-bottom:0.5rem;'>{cult['emoji']} {cult['label']}</div>",
                 unsafe_allow_html=True,
             )
 
-            # ── MAT ────────────────────────────────────────────────────
-            if mat_front_val is not None:
-                mat_html = _mini_row(
-                    f"MAT {mat_front_key}",
-                    f"{_fmt_usd(mat_front_val)}<span style='font-size:0.7rem;color:#888;'> /tn</span>",
-                )
-            else:
-                mat_html = _mini_row("MAT", "—")
-            st.markdown(f"<div style='text-align:center;'>{mat_html}</div>",
-                        unsafe_allow_html=True)
+            # Fila 1: PIZARRA  |  MAT
+            sub_l, sub_r = st.columns(2)
+            sub_l.markdown(piz_html, unsafe_allow_html=True)
+            sub_r.markdown(mat_html, unsafe_allow_html=True)
 
-            # ── CBOT (solo maíz) ───────────────────────────────────────
-            if slug == "maiz":
-                if cbot_cents_bu is not None:
-                    cbot_sub = (f"{_fmt_usd(cbot_usd_tn)} /tn · close {cbot_as_of_short}"
-                                if cbot_as_of_short else f"{_fmt_usd(cbot_usd_tn)} /tn")
-                    cbot_html = _mini_row(
-                        f"CBOT {cbot_contract}",
-                        f"{cbot_cents_bu:.1f}<span style='font-size:0.7rem;color:#888;'> ¢/bu</span>",
-                        cbot_sub,
-                    )
-                else:
-                    cbot_html = _mini_row(f"CBOT {cbot_contract or ''}", "—")
-                st.markdown(f"<div style='text-align:center;'>{cbot_html}</div>",
-                            unsafe_allow_html=True)
-
-            # ── REPLACEMENT ────────────────────────────────────────────
-            repl_value = (
-                f"<span style='color:{repl_color};'>{repl_str}</span>"
-                f"<span style='font-size:0.7rem;color:#888;'>{repl_unit}</span>"
+            # Separador
+            st.markdown(
+                "<hr style='margin:0.5rem 0 0.4rem 0;border:none;"
+                "border-top:1px solid rgba(0,0,0,0.08);'/>",
+                unsafe_allow_html=True,
             )
-            repl_html = _mini_row("REPLACEMENT", repl_value)
-            st.markdown(f"<div style='text-align:center;'>{repl_html}</div>",
-                        unsafe_allow_html=True)
+
+            # Fila 2: CBOT (si aplica)  |  REPLACEMENT
+            sub_l, sub_r = st.columns(2)
+            if cbot_html is not None:
+                sub_l.markdown(cbot_html, unsafe_allow_html=True)
+                sub_r.markdown(repl_html, unsafe_allow_html=True)
+            else:
+                # Trigo / Sorgo / Cebada: REPLACEMENT centrado, columna
+                # izquierda vacía para mantener simetría visual.
+                sub_l.markdown(
+                    "<div style='font-size:0.6rem;color:#bbb;text-align:center;"
+                    "padding-top:0.2rem;'>— sin Chicago —</div>",
+                    unsafe_allow_html=True,
+                )
+                sub_r.markdown(repl_html, unsafe_allow_html=True)
 
     st.divider()
 
