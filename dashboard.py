@@ -46,6 +46,39 @@ FS_TO_CARGO = {
     "cebada": "Barley",
 }
 
+# Mapeo de slug → nombre de producto en el Recap Totalizado
+SLUG_TO_RECAP_PROD = {
+    "maiz":   "MAIZ",
+    "trigo":  "TRIGO",
+    "sorgo":  "SORGO",
+    "cebada": "CEBADA FORRAJERA",
+}
+
+# Cosechas OC/NC por cultivo (formato Recap)
+RECAP_OC_COSECHA = {p: "2025/2026" for p in SLUG_TO_RECAP_PROD.values()}
+RECAP_NC_COSECHA = {p: "2026/2027" for p in SLUG_TO_RECAP_PROD.values()}
+
+# Operaciones del Recap que cuentan como "compra física".
+# Incluye ampliaciones (qtty +) y anulaciones (qtty −), que se compensan
+# automáticamente al sumar. Cubrimos variantes de mayúsculas y con/sin tilde.
+COMPRA_OPS = {
+    # compras a precio
+    "COMPRAS A PRECIO", "Compras a Precio", "Compra a Precio", "COMPRA A PRECIO",
+    # fijaciones
+    "FIJACIONES COMPRA", "Fijaciones Compra",
+    "FIJACIONES COMPRA FAS EN PREMIO", "Fijaciones Compra Fas en Premio",
+    "COMPRAS PAF", "Compras PAF",
+    # ampliaciones / anulaciones (con signo embebido en QTTY)
+    "AMPLIACION", "Ampliacion", "AMPLIACIÓN", "Ampliación",
+    "ANULACION", "Anulacion", "ANULACIÓN", "Anulación",
+}
+
+# Carpeta del Recap Totalizado (overridable por env var)
+RECAP_DIR = Path(os.environ.get(
+    "RECAP_DIR",
+    str(Path.home() / "5. Recap Totalizado"),
+))
+
 
 def _fmt_tn(v):
     """Formatea tn → kt rounded, con punto separador."""
@@ -164,6 +197,123 @@ def _yesterday_row(df: pd.DataFrame, year: int) -> tuple[pd.Series | None, date 
     daily = daily.sort_values("fecha")
     last = daily.iloc[-1]
     return last, last["fecha"].date()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Recap Totalizado (compras propias)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _latest_recap_file(recap_dir: Path) -> Path | None:
+    """Encuentra el último RecapTotalizado<...>.xlsx en la carpeta."""
+    if not recap_dir.exists():
+        return None
+    candidates = sorted(
+        recap_dir.glob("RecapTotalizado *.xlsx"),
+        key=lambda p: p.stat().st_mtime, reverse=True,
+    )
+    return candidates[0] if candidates else None
+
+
+@st.cache_data(show_spinner="Cargando compras propias (Recap)…")
+def _load_recap_database(_recap_path_str: str, _mtime: float) -> pd.DataFrame:
+    """Lee la hoja DATABASE del último RecapTotalizado. mtime se usa como
+    invalidador de cache: cuando el archivo se actualiza, se recarga."""
+    import openpyxl
+    p = Path(_recap_path_str)
+    if not p.exists():
+        return pd.DataFrame()
+
+    wb = openpyxl.load_workbook(p, data_only=True, read_only=True)
+    if "DATABASE" not in wb.sheetnames:
+        return pd.DataFrame()
+    ws = wb["DATABASE"]
+    rows = []
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        # row puede tener varios trailing Nones; padding defensivo
+        padded = list(row) + [None] * max(0, 6 - len(row))
+        mes, fec, prod, op, cos, qtty = padded[:6]
+        rows.append({
+            "fecha": fec, "producto": prod, "operacion": op,
+            "cosecha": cos, "qtty": qtty,
+        })
+    df = pd.DataFrame(rows)
+    df["fecha"] = pd.to_datetime(df["fecha"], errors="coerce")
+    df = df.dropna(subset=["fecha", "producto", "qtty"])
+    df["qtty"] = pd.to_numeric(df["qtty"], errors="coerce").fillna(0)
+    df["producto"] = df["producto"].astype(str).str.upper().str.strip()
+    df["operacion"] = df["operacion"].astype(str).str.strip()
+    df["cosecha"] = df["cosecha"].astype(str).str.strip()
+    # No filtramos por qtty>0: las ANULACION vienen con qtty negativa y queremos
+    # que resten al sumar. Sólo descartamos filas con qtty=0 (ruido).
+    return df[df["qtty"] != 0]
+
+
+@st.cache_data(show_spinner=False)
+def _load_recap_mat(_recap_path_str: str, _mtime: float) -> pd.DataFrame:
+    """Lee la hoja DATABASE MAT del último RecapTotalizado."""
+    import openpyxl
+    p = Path(_recap_path_str)
+    if not p.exists():
+        return pd.DataFrame()
+    wb = openpyxl.load_workbook(p, data_only=True, read_only=True)
+    if "DATABASE MAT" not in wb.sheetnames:
+        return pd.DataFrame()
+    ws = wb["DATABASE MAT"]
+    rows = []
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        if len(row) < 6:
+            continue
+        fec, op, prod, ent, qtty, px, *_ = row
+        rows.append({
+            "fecha": fec, "operacion": op, "producto": prod,
+            "entrega": ent, "qtty": qtty, "px": px,
+        })
+    df = pd.DataFrame(rows)
+    df["fecha"] = pd.to_datetime(df["fecha"], errors="coerce")
+    df = df.dropna(subset=["fecha", "producto", "qtty"])
+    df["qtty"] = pd.to_numeric(df["qtty"], errors="coerce").fillna(0)
+    df["producto"] = df["producto"].astype(str).str.upper().str.strip()
+    df["operacion"] = df["operacion"].astype(str).str.strip()
+    return df[df["qtty"] > 0]
+
+
+def _recap_compras_agg(df_recap: pd.DataFrame, slug: str,
+                       day_from: date, day_to: date) -> dict:
+    """Agrega compras propias para un cultivo en un rango de fechas.
+
+    Returns dict {oc, nc, total_qtty}.
+    """
+    prod = SLUG_TO_RECAP_PROD.get(slug)
+    if not prod or df_recap.empty:
+        return {"oc": 0, "nc": 0, "total": 0}
+    mask = (
+        (df_recap["producto"] == prod) &
+        (df_recap["operacion"].isin(COMPRA_OPS)) &
+        (df_recap["fecha"].dt.date >= day_from) &
+        (df_recap["fecha"].dt.date <= day_to)
+    )
+    sub = df_recap[mask]
+    if sub.empty:
+        return {"oc": 0, "nc": 0, "total": 0}
+    oc_cos = RECAP_OC_COSECHA[prod]
+    nc_cos = RECAP_NC_COSECHA[prod]
+    oc = int(sub[sub["cosecha"] == oc_cos]["qtty"].sum())
+    nc = int(sub[sub["cosecha"] == nc_cos]["qtty"].sum())
+    return {"oc": oc, "nc": nc, "total": int(sub["qtty"].sum())}
+
+
+def _recap_mat_agg(df_mat: pd.DataFrame, slug: str,
+                   day_from: date, day_to: date) -> int:
+    """Total tn de MAT (operaciones del mes en curso) para un cultivo."""
+    prod = SLUG_TO_RECAP_PROD.get(slug)
+    if not prod or df_mat.empty:
+        return 0
+    mask = (
+        (df_mat["producto"] == prod) &
+        (df_mat["fecha"].dt.date >= day_from) &
+        (df_mat["fecha"].dt.date <= day_to)
+    )
+    return int(df_mat[mask]["qtty"].sum())
 
 
 def _week_to_yesterday_df(df: pd.DataFrame, year: int) -> pd.DataFrame:
@@ -678,6 +828,168 @@ def render_dashboard(app_all_dir: Path) -> None:
             f"Semana = lunes→ayer (sin fin de semana). "
             f"Pace OC · Semana = ΣOC / días transcurridos; "
             f"Pace OC · 10d = avg OC de los últimos 10 días hábiles."
+        )
+
+    # FS por cultivo para computar share — capturamos los valores aquí
+    fs_oc_week_by_slug = {}
+    fs_nc_week_by_slug = {}
+    fs_oc_yest_by_slug = {}
+    fs_nc_yest_by_slug = {}
+    for cult in CULTIVOS:
+        df_cult = _load_matriz(str(fs_dir), cult["slug"])
+        if df_cult.empty:
+            fs_oc_week_by_slug[cult["slug"]] = 0
+            fs_nc_week_by_slug[cult["slug"]] = 0
+            fs_oc_yest_by_slug[cult["slug"]] = 0
+            fs_nc_yest_by_slug[cult["slug"]] = 0
+            continue
+        last_row_c, _ = _yesterday_row(df_cult, today.year)
+        week_df_c = _week_to_yesterday_df(df_cult, today.year)
+        oc_cols_c = [c for c in cult["oc"] if c in df_cult.columns]
+        if last_row_c is not None and oc_cols_c:
+            fs_oc_yest_by_slug[cult["slug"]] = sum(int(last_row_c[c]) for c in oc_cols_c)
+            fs_nc_yest_by_slug[cult["slug"]] = (
+                int(last_row_c["NC"]) if cult["has_nc"] and "NC" in df_cult.columns else 0
+            )
+        else:
+            fs_oc_yest_by_slug[cult["slug"]] = 0
+            fs_nc_yest_by_slug[cult["slug"]] = 0
+        if not week_df_c.empty and oc_cols_c:
+            fs_oc_week_by_slug[cult["slug"]] = int(week_df_c[oc_cols_c].sum().sum())
+            fs_nc_week_by_slug[cult["slug"]] = (
+                int(week_df_c["NC"].sum())
+                if cult["has_nc"] and "NC" in week_df_c.columns else 0
+            )
+        else:
+            fs_oc_week_by_slug[cult["slug"]] = 0
+            fs_nc_week_by_slug[cult["slug"]] = 0
+
+    st.divider()
+
+    # ════════════════════════════════════════════════════════════════════════
+    # 1B. Nuestras compras (Recap Totalizado) + share vs FS
+    # ════════════════════════════════════════════════════════════════════════
+    st.subheader("🏢 Nuestras compras · ayer y semana (share vs FS)")
+
+    recap_file = _latest_recap_file(RECAP_DIR)
+    if recap_file is None:
+        st.info(
+            f"No encontré ningún `RecapTotalizado *.xlsx` en `{RECAP_DIR}`. "
+            "Si lo moviste, exportá `RECAP_DIR=/ruta/...` antes de lanzar la app."
+        )
+    else:
+        df_recap = _load_recap_database(str(recap_file), recap_file.stat().st_mtime)
+        df_mat = _load_recap_mat(str(recap_file), recap_file.stat().st_mtime)
+
+        # Rango: semana corriente (lun→ayer)
+        week_mon = today - timedelta(days=today.weekday())
+        yesterday_d = today - timedelta(days=1)
+        # Si hoy es lunes, "ayer" = viernes pasado; recortamos a sólo lun-vie
+        while yesterday_d.weekday() >= 5:
+            yesterday_d -= timedelta(days=1)
+
+        rc_cols = st.columns(len(CULTIVOS))
+        for i, cult in enumerate(CULTIVOS):
+            slug = cult["slug"]
+            # Compras propias del cultivo
+            ag_yest = _recap_compras_agg(df_recap, slug, yesterday_d, yesterday_d)
+            ag_week = _recap_compras_agg(df_recap, slug, week_mon, yesterday_d)
+            mat_week = _recap_mat_agg(df_mat, slug, week_mon, yesterday_d)
+
+            # Share = nuestras / FS × 100. FS está en tn también.
+            def _share(part, whole):
+                if whole and whole > 0:
+                    return f"{part/whole*100:.1f}%"
+                return "—"
+
+            share_oc_y = _share(ag_yest["oc"], fs_oc_yest_by_slug.get(slug, 0))
+            share_oc_w = _share(ag_week["oc"], fs_oc_week_by_slug.get(slug, 0))
+            share_nc_w = _share(ag_week["nc"], fs_nc_week_by_slug.get(slug, 0))
+
+            with rc_cols[i]:
+                st.markdown(
+                    f"<div style='font-weight:600;font-size:1rem;text-align:center;"
+                    f"margin-bottom:0.3rem;'>{cult['emoji']} {cult['label']}</div>",
+                    unsafe_allow_html=True,
+                )
+
+                # AYER
+                st.markdown(
+                    f"<div style='text-align:center;font-size:0.75rem;color:#888;"
+                    f"letter-spacing:1px;'>AYER</div>",
+                    unsafe_allow_html=True,
+                )
+                sl, sr = st.columns(2)
+                sl.markdown(
+                    f"<div style='font-size:0.78rem;color:#666;text-align:center;'>"
+                    f"OC<br><span style='font-size:1.05rem;font-weight:700;color:#222;'>"
+                    f"{_fmt_tn(ag_yest['oc'])} kt</span>"
+                    f"<br><span style='font-size:0.7rem;color:#1565C0;'>share {share_oc_y}</span>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+                sr.markdown(
+                    f"<div style='font-size:0.78rem;color:#666;text-align:center;'>"
+                    f"NC<br><span style='font-size:1.05rem;font-weight:700;color:#222;'>"
+                    f"{_fmt_tn(ag_yest['nc'])} kt</span>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
+                # Separador
+                st.markdown(
+                    "<hr style='margin:0.6rem 0 0.4rem 0;border:none;"
+                    "border-top:1px solid rgba(0,0,0,0.08);'/>",
+                    unsafe_allow_html=True,
+                )
+
+                # SEMANA
+                st.markdown(
+                    f"<div style='text-align:center;font-size:0.75rem;color:#888;"
+                    f"letter-spacing:1px;'>SEMANA</div>",
+                    unsafe_allow_html=True,
+                )
+                sl, sr = st.columns(2)
+                sl.markdown(
+                    f"<div style='font-size:0.78rem;color:#666;text-align:center;'>"
+                    f"OC<br><span style='font-size:1.05rem;font-weight:700;color:#222;'>"
+                    f"{_fmt_tn(ag_week['oc'])} kt</span>"
+                    f"<br><span style='font-size:0.7rem;color:#1565C0;'>share {share_oc_w}</span>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+                sr.markdown(
+                    f"<div style='font-size:0.78rem;color:#666;text-align:center;'>"
+                    f"NC<br><span style='font-size:1.05rem;font-weight:700;color:#222;'>"
+                    f"{_fmt_tn(ag_week['nc'])} kt</span>"
+                    f"<br><span style='font-size:0.7rem;color:#1565C0;'>share {share_nc_w}</span>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
+                # MAT
+                st.markdown(
+                    "<hr style='margin:0.6rem 0 0.4rem 0;border:none;"
+                    "border-top:1px solid rgba(0,0,0,0.08);'/>",
+                    unsafe_allow_html=True,
+                )
+                st.markdown(
+                    f"<div style='text-align:center;font-size:0.75rem;color:#888;"
+                    f"letter-spacing:1px;'>MAT · SEMANA</div>",
+                    unsafe_allow_html=True,
+                )
+                st.markdown(
+                    f"<div style='text-align:center;font-size:1rem;font-weight:600;"
+                    f"color:#7B1FA2;'>{_fmt_tn(mat_week)} kt</div>",
+                    unsafe_allow_html=True,
+                )
+
+        st.caption(
+            f"Recap: **{recap_file.name}** "
+            f"(actualizado {pd.Timestamp(recap_file.stat().st_mtime, unit='s').strftime('%d/%m %H:%M')}). "
+            f"Compras = COMPRAS A PRECIO + FIJACIONES COMPRA + FAS EN PREMIO + COMPRAS PAF "
+            f"+ AMPLIACION (+) + ANULACION (−, con signo del Recap). "
+            f"Share = nuestras / Farmer Selling del mismo período."
         )
 
     st.divider()
