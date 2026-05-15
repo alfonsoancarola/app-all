@@ -225,7 +225,7 @@ def _build_monthly_pace_chart(
             lu_real = lu_data["sailed_daily_cum"].rename(
                 columns={"DATE": "fecha", "sailed_cum": "cum"}
             )
-            lu_real["serie"] = "Embarques"
+            lu_real["serie"] = "Loaded (Sailed)"
             # Forecast embarques: pipeline distribuido en biz days desde cap
             cap = lu_data["cap_date"]
             extra = float(lu_data["roads_total"] + lu_data["lineup_total"])
@@ -233,11 +233,11 @@ def _build_monthly_pace_chart(
             if biz_fut and extra > 0:
                 slope = extra / len(biz_fut)
                 last_lu = float(lu_real["cum"].iloc[-1]) if len(lu_real) else 0.0
-                rows = [{"fecha": cap, "cum": last_lu, "serie": "Embarques fc"}]
+                rows = [{"fecha": cap, "cum": last_lu, "serie": "Loaded + At Roads + Lineup"}]
                 r = last_lu
                 for d in biz_fut:
                     r += slope
-                    rows.append({"fecha": d, "cum": r, "serie": "Embarques fc"})
+                    rows.append({"fecha": d, "cum": r, "serie": "Loaded + At Roads + Lineup"})
                 lu_fc = pd.DataFrame(rows)
     except Exception:
         pass
@@ -256,7 +256,7 @@ def _build_monthly_pace_chart(
     color = alt.Color(
         "serie:N",
         scale=alt.Scale(
-            domain=["Compras", "Forecast", "Embarques", "Embarques fc"],
+            domain=["Compras", "Forecast", "Loaded (Sailed)", "Loaded + At Roads + Lineup"],
             range=["#1D9E75", "#F2C94C", "#185FA5", "#A0C4E8"],
         ),
         legend=alt.Legend(orient="bottom", title=None,
@@ -667,7 +667,7 @@ def render_dashboard(app_all_dir: Path) -> None:
 
     st.caption(
         "🟢 Compras realizadas (FS) · 🟡 Forecast compras · "
-        "🔵 Embarques realizados (Lineups Sailed) · 🟦 Forecast embarques."
+        "🔵 Loaded (Sailed) · 🟦 Loaded + At Roads + Lineup."
     )
 
     st.divider()
