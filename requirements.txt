@@ -1,0 +1,14 @@
+# Deps combinadas de fs_maiz + Lineups
+streamlit>=1.32
+pandas>=2.0
+altair>=5.0
+
+# fs_maiz pipeline (Playwright + scrapers). Opcional si solo querés ver la UI.
+playwright>=1.40
+httpx>=0.27
+beautifulsoup4>=4.12
+pdfplumber>=0.10
+
+# Lineups: lectura de .xls (viejo) y .xlsx
+xlrd==2.0.1
+openpyxl>=3.1

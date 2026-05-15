@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+.python-version
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Mac
+.DS_Store
+*.swp
+
+# CSVs crudos del SIO (regenerables, pueden ser muy pesados)
+data/sio/
+data/_sio_chunks/
+data/sio_historico.csv
+
+# PDFs del boletín BCR (regenerables — se rebajan en el cron diario)
+data/boletines/
+
+# Logs
+launchd.log
+*.log
+logs/
+
+# Plist generado por launchd (local)
+com.alfonso.fsmaiz.plist
+*.plist
+
+# Editor
+.vscode/
+.idea/

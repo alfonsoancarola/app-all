@@ -1,0 +1,36 @@
+# ── Python ─────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.pytest_cache/
+
+# ── Virtualenvs (cada usuario crea las suyas con make setup) ──────────
+.venv/
+venv/
+env/
+
+# ── macOS ─────────────────────────────────────────────────────────────
+.DS_Store
+
+# ── IDEs ──────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+
+# ── Logs ──────────────────────────────────────────────────────────────
+*.log
+fs_maiz/launchd.log
+
+# ── Data gorda de fs_maiz (se regenera con `make daily`) ──────────────
+# El histórico completo de SIO (2GB) y los chunks de backfill (2GB) NO
+# van al repo. Las matrices por cultivo (matriz_*.csv) sí van porque
+# son chicas y son lo que la app lee.
+fs_maiz/data/sio_historico.csv
+fs_maiz/data/_sio_chunks/
+
+# ── Streamlit secrets locales ─────────────────────────────────────────
+.streamlit/secrets.toml
+
+# ── ngrok ─────────────────────────────────────────────────────────────
+ngrok.yml

@@ -1,0 +1,527 @@
+{
+  "serie": [
+    {
+      "fecha": "2022-05-04",
+      "ph_fijado_acum_kt": 434.6,
+      "ph_acum_kt": 428.2,
+      "fij_acum_kt": 6.4
+    },
+    {
+      "fecha": "2022-05-11",
+      "ph_fijado_acum_kt": 476.3,
+      "ph_acum_kt": 468.7,
+      "fij_acum_kt": 7.6
+    },
+    {
+      "fecha": "2022-05-18",
+      "ph_fijado_acum_kt": 601.8,
+      "ph_acum_kt": 594.2,
+      "fij_acum_kt": 7.6
+    },
+    {
+      "fecha": "2022-05-25",
+      "ph_fijado_acum_kt": 644.6,
+      "ph_acum_kt": 637.0,
+      "fij_acum_kt": 7.6
+    },
+    {
+      "fecha": "2022-06-01",
+      "ph_fijado_acum_kt": 718.4,
+      "ph_acum_kt": 709.0,
+      "fij_acum_kt": 9.4
+    },
+    {
+      "fecha": "2022-06-08",
+      "ph_fijado_acum_kt": 736.6,
+      "ph_acum_kt": 726.3,
+      "fij_acum_kt": 10.3
+    },
+    {
+      "fecha": "2022-06-15",
+      "ph_fijado_acum_kt": 830.0,
+      "ph_acum_kt": 818.7,
+      "fij_acum_kt": 11.3
+    },
+    {
+      "fecha": "2022-06-22",
+      "ph_fijado_acum_kt": 963.5,
+      "ph_acum_kt": 952.1,
+      "fij_acum_kt": 11.4
+    },
+    {
+      "fecha": "2022-06-29",
+      "ph_fijado_acum_kt": 980.8,
+      "ph_acum_kt": 967.1,
+      "fij_acum_kt": 13.7
+    },
+    {
+      "fecha": "2022-07-06",
+      "ph_fijado_acum_kt": 982.8,
+      "ph_acum_kt": 968.6,
+      "fij_acum_kt": 14.2
+    },
+    {
+      "fecha": "2022-07-13",
+      "ph_fijado_acum_kt": 1012.7,
+      "ph_acum_kt": 996.5,
+      "fij_acum_kt": 16.2
+    },
+    {
+      "fecha": "2022-07-20",
+      "ph_fijado_acum_kt": 1015.4,
+      "ph_acum_kt": 999.2,
+      "fij_acum_kt": 16.2
+    },
+    {
+      "fecha": "2022-07-27",
+      "ph_fijado_acum_kt": 1045.8,
+      "ph_acum_kt": 1029.6,
+      "fij_acum_kt": 16.2
+    },
+    {
+      "fecha": "2022-08-03",
+      "ph_fijado_acum_kt": 1094.4,
+      "ph_acum_kt": 1076.5,
+      "fij_acum_kt": 17.9
+    },
+    {
+      "fecha": "2022-08-10",
+      "ph_fijado_acum_kt": 1192.9,
+      "ph_acum_kt": 1160.5,
+      "fij_acum_kt": 32.4
+    },
+    {
+      "fecha": "2022-08-17",
+      "ph_fijado_acum_kt": 1254.1,
+      "ph_acum_kt": 1220.4,
+      "fij_acum_kt": 33.7
+    },
+    {
+      "fecha": "2022-08-24",
+      "ph_fijado_acum_kt": 1402.3,
+      "ph_acum_kt": 1350.0,
+      "fij_acum_kt": 52.3
+    },
+    {
+      "fecha": "2022-08-31",
+      "ph_fijado_acum_kt": 1558.4,
+      "ph_acum_kt": 1497.3,
+      "fij_acum_kt": 61.1
+    },
+    {
+      "fecha": "2022-09-07",
+      "ph_fijado_acum_kt": 1593.4,
+      "ph_acum_kt": 1529.8,
+      "fij_acum_kt": 63.6
+    },
+    {
+      "fecha": "2022-09-14",
+      "ph_fijado_acum_kt": 1685.6,
+      "ph_acum_kt": 1616.8,
+      "fij_acum_kt": 68.8
+    },
+    {
+      "fecha": "2022-09-21",
+      "ph_fijado_acum_kt": 1725.2,
+      "ph_acum_kt": 1655.2,
+      "fij_acum_kt": 70.0
+    },
+    {
+      "fecha": "2022-09-28",
+      "ph_fijado_acum_kt": 1749.0,
+      "ph_acum_kt": 1678.7,
+      "fij_acum_kt": 70.3
+    },
+    {
+      "fecha": "2022-10-05",
+      "ph_fijado_acum_kt": 1884.8,
+      "ph_acum_kt": 1810.1,
+      "fij_acum_kt": 74.7
+    },
+    {
+      "fecha": "2022-10-12",
+      "ph_fijado_acum_kt": 1959.4,
+      "ph_acum_kt": 1884.3,
+      "fij_acum_kt": 75.1
+    },
+    {
+      "fecha": "2022-10-19",
+      "ph_fijado_acum_kt": 2061.3,
+      "ph_acum_kt": 1982.4,
+      "fij_acum_kt": 78.9
+    },
+    {
+      "fecha": "2022-10-26",
+      "ph_fijado_acum_kt": 2328.2,
+      "ph_acum_kt": 2243.8,
+      "fij_acum_kt": 84.4
+    },
+    {
+      "fecha": "2022-11-02",
+      "ph_fijado_acum_kt": 2422.0,
+      "ph_acum_kt": 2333.9,
+      "fij_acum_kt": 88.1
+    },
+    {
+      "fecha": "2022-11-09",
+      "ph_fijado_acum_kt": 2511.9,
+      "ph_acum_kt": 2423.4,
+      "fij_acum_kt": 88.5
+    },
+    {
+      "fecha": "2022-11-16",
+      "ph_fijado_acum_kt": 2533.9,
+      "ph_acum_kt": 2445.4,
+      "fij_acum_kt": 88.5
+    },
+    {
+      "fecha": "2022-11-23",
+      "ph_fijado_acum_kt": 2573.9,
+      "ph_acum_kt": 2484.1,
+      "fij_acum_kt": 89.8
+    },
+    {
+      "fecha": "2022-11-30",
+      "ph_fijado_acum_kt": 2646.5,
+      "ph_acum_kt": 2556.0,
+      "fij_acum_kt": 90.5
+    },
+    {
+      "fecha": "2022-12-07",
+      "ph_fijado_acum_kt": 2686.2,
+      "ph_acum_kt": 2593.2,
+      "fij_acum_kt": 93.0
+    },
+    {
+      "fecha": "2022-12-14",
+      "ph_fijado_acum_kt": 2717.8,
+      "ph_acum_kt": 2624.8,
+      "fij_acum_kt": 93.0
+    },
+    {
+      "fecha": "2022-12-21",
+      "ph_fijado_acum_kt": 2743.1,
+      "ph_acum_kt": 2648.9,
+      "fij_acum_kt": 94.2
+    },
+    {
+      "fecha": "2022-12-28",
+      "ph_fijado_acum_kt": 2766.6,
+      "ph_acum_kt": 2671.2,
+      "fij_acum_kt": 95.4
+    },
+    {
+      "fecha": "2023-01-04",
+      "ph_fijado_acum_kt": 2794.7,
+      "ph_acum_kt": 2699.2,
+      "fij_acum_kt": 95.5
+    },
+    {
+      "fecha": "2023-01-11",
+      "ph_fijado_acum_kt": 2806.6,
+      "ph_acum_kt": 2711.0,
+      "fij_acum_kt": 95.6
+    },
+    {
+      "fecha": "2023-01-18",
+      "ph_fijado_acum_kt": 2826.4,
+      "ph_acum_kt": 2728.4,
+      "fij_acum_kt": 98.0
+    },
+    {
+      "fecha": "2023-01-25",
+      "ph_fijado_acum_kt": 2869.1,
+      "ph_acum_kt": 2768.0,
+      "fij_acum_kt": 101.1
+    },
+    {
+      "fecha": "2023-02-01",
+      "ph_fijado_acum_kt": 3057.5,
+      "ph_acum_kt": 2933.7,
+      "fij_acum_kt": 123.8
+    },
+    {
+      "fecha": "2023-02-08",
+      "ph_fijado_acum_kt": 3140.0,
+      "ph_acum_kt": 3008.2,
+      "fij_acum_kt": 131.8
+    },
+    {
+      "fecha": "2023-02-15",
+      "ph_fijado_acum_kt": 3358.1,
+      "ph_acum_kt": 3215.8,
+      "fij_acum_kt": 142.3
+    },
+    {
+      "fecha": "2023-02-22",
+      "ph_fijado_acum_kt": 3426.9,
+      "ph_acum_kt": 3279.4,
+      "fij_acum_kt": 147.5
+    },
+    {
+      "fecha": "2023-03-01",
+      "ph_fijado_acum_kt": 3531.7,
+      "ph_acum_kt": 3372.3,
+      "fij_acum_kt": 159.4
+    },
+    {
+      "fecha": "2023-03-08",
+      "ph_fijado_acum_kt": 3716.0,
+      "ph_acum_kt": 3522.8,
+      "fij_acum_kt": 193.2
+    },
+    {
+      "fecha": "2023-03-15",
+      "ph_fijado_acum_kt": 4009.2,
+      "ph_acum_kt": 3743.1,
+      "fij_acum_kt": 266.1
+    },
+    {
+      "fecha": "2023-03-22",
+      "ph_fijado_acum_kt": 4336.6,
+      "ph_acum_kt": 3985.2,
+      "fij_acum_kt": 351.4
+    },
+    {
+      "fecha": "2023-03-29",
+      "ph_fijado_acum_kt": 4819.8,
+      "ph_acum_kt": 4384.2,
+      "fij_acum_kt": 435.6
+    },
+    {
+      "fecha": "2023-04-05",
+      "ph_fijado_acum_kt": 5102.6,
+      "ph_acum_kt": 4594.8,
+      "fij_acum_kt": 507.8
+    },
+    {
+      "fecha": "2023-04-12",
+      "ph_fijado_acum_kt": 5400.4,
+      "ph_acum_kt": 4769.6,
+      "fij_acum_kt": 630.8
+    },
+    {
+      "fecha": "2023-04-19",
+      "ph_fijado_acum_kt": 5719.8,
+      "ph_acum_kt": 4951.9,
+      "fij_acum_kt": 767.9
+    },
+    {
+      "fecha": "2023-04-26",
+      "ph_fijado_acum_kt": 5946.8,
+      "ph_acum_kt": 5085.0,
+      "fij_acum_kt": 861.8
+    },
+    {
+      "fecha": "2023-05-03",
+      "ph_fijado_acum_kt": 6145.9,
+      "ph_acum_kt": 5257.6,
+      "fij_acum_kt": 888.3
+    },
+    {
+      "fecha": "2023-05-10",
+      "ph_fijado_acum_kt": 6375.0,
+      "ph_acum_kt": 5439.3,
+      "fij_acum_kt": 935.7
+    },
+    {
+      "fecha": "2023-05-17",
+      "ph_fijado_acum_kt": 6688.3,
+      "ph_acum_kt": 5682.5,
+      "fij_acum_kt": 1005.8
+    },
+    {
+      "fecha": "2023-05-24",
+      "ph_fijado_acum_kt": 10480.8,
+      "ph_acum_kt": 5772.1,
+      "fij_acum_kt": 4708.7
+    },
+    {
+      "fecha": "2023-05-31",
+      "ph_fijado_acum_kt": 10603.4,
+      "ph_acum_kt": 5848.3,
+      "fij_acum_kt": 4755.1
+    },
+    {
+      "fecha": "2023-06-07",
+      "ph_fijado_acum_kt": 10647.2,
+      "ph_acum_kt": 5902.6,
+      "fij_acum_kt": 4744.6
+    },
+    {
+      "fecha": "2023-06-14",
+      "ph_fijado_acum_kt": 10906.2,
+      "ph_acum_kt": 6084.4,
+      "fij_acum_kt": 4821.8
+    },
+    {
+      "fecha": "2023-06-21",
+      "ph_fijado_acum_kt": 10940.1,
+      "ph_acum_kt": 6131.6,
+      "fij_acum_kt": 4808.5
+    },
+    {
+      "fecha": "2023-06-28",
+      "ph_fijado_acum_kt": 10864.3,
+      "ph_acum_kt": 6169.2,
+      "fij_acum_kt": 4695.1
+    },
+    {
+      "fecha": "2023-07-05",
+      "ph_fijado_acum_kt": 10934.9,
+      "ph_acum_kt": 6234.8,
+      "fij_acum_kt": 4700.1
+    },
+    {
+      "fecha": "2023-07-12",
+      "ph_fijado_acum_kt": 10911.2,
+      "ph_acum_kt": 6270.9,
+      "fij_acum_kt": 4640.3
+    },
+    {
+      "fecha": "2023-07-19",
+      "ph_fijado_acum_kt": 10981.8,
+      "ph_acum_kt": 6329.4,
+      "fij_acum_kt": 4652.4
+    },
+    {
+      "fecha": "2023-07-26",
+      "ph_fijado_acum_kt": 10775.1,
+      "ph_acum_kt": 6404.5,
+      "fij_acum_kt": 4370.6
+    },
+    {
+      "fecha": "2023-08-02",
+      "ph_fijado_acum_kt": 10425.7,
+      "ph_acum_kt": 6454.4,
+      "fij_acum_kt": 3971.3
+    },
+    {
+      "fecha": "2023-08-09",
+      "ph_fijado_acum_kt": 10418.5,
+      "ph_acum_kt": 6573.1,
+      "fij_acum_kt": 3845.4
+    },
+    {
+      "fecha": "2023-08-16",
+      "ph_fijado_acum_kt": 10483.4,
+      "ph_acum_kt": 6639.9,
+      "fij_acum_kt": 3843.5
+    },
+    {
+      "fecha": "2023-08-23",
+      "ph_fijado_acum_kt": 10507.2,
+      "ph_acum_kt": 6675.3,
+      "fij_acum_kt": 3831.9
+    },
+    {
+      "fecha": "2023-08-30",
+      "ph_fijado_acum_kt": 10459.9,
+      "ph_acum_kt": 6692.2,
+      "fij_acum_kt": 3767.7
+    },
+    {
+      "fecha": "2023-09-06",
+      "ph_fijado_acum_kt": 10503.4,
+      "ph_acum_kt": 6743.2,
+      "fij_acum_kt": 3760.2
+    },
+    {
+      "fecha": "2023-09-13",
+      "ph_fijado_acum_kt": 10314.1,
+      "ph_acum_kt": 6754.3,
+      "fij_acum_kt": 3559.8
+    },
+    {
+      "fecha": "2023-09-20",
+      "ph_fijado_acum_kt": 10268.9,
+      "ph_acum_kt": 6767.1,
+      "fij_acum_kt": 3501.8
+    },
+    {
+      "fecha": "2023-09-27",
+      "ph_fijado_acum_kt": 10344.8,
+      "ph_acum_kt": 6845.7,
+      "fij_acum_kt": 3499.1
+    },
+    {
+      "fecha": "2023-10-04",
+      "ph_fijado_acum_kt": 10327.1,
+      "ph_acum_kt": 6858.5,
+      "fij_acum_kt": 3468.6
+    },
+    {
+      "fecha": "2023-10-11",
+      "ph_fijado_acum_kt": 10409.3,
+      "ph_acum_kt": 6921.2,
+      "fij_acum_kt": 3488.1
+    },
+    {
+      "fecha": "2023-10-18",
+      "ph_fijado_acum_kt": 10406.8,
+      "ph_acum_kt": 6924.7,
+      "fij_acum_kt": 3482.1
+    },
+    {
+      "fecha": "2023-10-25",
+      "ph_fijado_acum_kt": 10315.5,
+      "ph_acum_kt": 6943.9,
+      "fij_acum_kt": 3371.6
+    },
+    {
+      "fecha": "2023-11-01",
+      "ph_fijado_acum_kt": 10204.7,
+      "ph_acum_kt": 6994.7,
+      "fij_acum_kt": 3210.0
+    },
+    {
+      "fecha": "2023-11-08",
+      "ph_fijado_acum_kt": 10105.7,
+      "ph_acum_kt": 7004.3,
+      "fij_acum_kt": 3101.4
+    },
+    {
+      "fecha": "2023-11-15",
+      "ph_fijado_acum_kt": 10085.7,
+      "ph_acum_kt": 7024.4,
+      "fij_acum_kt": 3061.3
+    },
+    {
+      "fecha": "2023-11-22",
+      "ph_fijado_acum_kt": 10064.8,
+      "ph_acum_kt": 7027.9,
+      "fij_acum_kt": 3036.9
+    },
+    {
+      "fecha": "2023-11-29",
+      "ph_fijado_acum_kt": 9960.2,
+      "ph_acum_kt": 7033.5,
+      "fij_acum_kt": 2926.7
+    },
+    {
+      "fecha": "2023-12-06",
+      "ph_fijado_acum_kt": 10145.1,
+      "ph_acum_kt": 7148.6,
+      "fij_acum_kt": 2996.5
+    },
+    {
+      "fecha": "2023-12-13",
+      "ph_fijado_acum_kt": 10140.0,
+      "ph_acum_kt": 7153.1,
+      "fij_acum_kt": 2986.9
+    },
+    {
+      "fecha": "2023-12-20",
+      "ph_fijado_acum_kt": 9843.6,
+      "ph_acum_kt": 7203.2,
+      "fij_acum_kt": 2640.4
+    },
+    {
+      "fecha": "2023-12-27",
+      "ph_fijado_acum_kt": 9879.2,
+      "ph_acum_kt": 7366.4,
+      "fij_acum_kt": 2512.8
+    }
+  ],
+  "_actualizado": "2023-12-27"
+}

@@ -1,0 +1,241 @@
+{
+  "computed_at": "2026-05-10T16:11:59.695011",
+  "current_cosecha": "25/26",
+  "current_cosecha_label": "26/27",
+  "current_date": "2026-04-29",
+  "current_month_idx": 5,
+  "current_month_name": "May",
+  "n_hist_years": 7,
+  "grupos": [
+    "MAM",
+    "JJ",
+    "AS",
+    "OND",
+    "JF"
+  ],
+  "subtitulos": {
+    "MAM": "Mar-May 26",
+    "JJ": "Jun-Jul 26",
+    "AS": "Aug-Sep 26",
+    "OND": "Oct-Dec 26",
+    "JF": "Jan-Feb 27"
+  },
+  "rows": [
+    {
+      "cosecha": "25/26",
+      "cosecha_label": "26/27",
+      "is_current": true,
+      "target_date": "2026-04-29",
+      "production_kt": 3084,
+      "est_exports_kt": 1170,
+      "ph_pricing_kt": 331,
+      "fs_pct": 28.3,
+      "groups_kt": {
+        "MAM": 240,
+        "JJ": 84,
+        "AS": 6,
+        "OND": 0,
+        "JF": 0
+      },
+      "month_year": 2026,
+      "month_actual_kt": 18,
+      "month_projected_kt": 18,
+      "month_groups_kt": {
+        "MAM": 17,
+        "JJ": 1,
+        "AS": 0,
+        "OND": 0,
+        "JF": 0
+      }
+    },
+    {
+      "cosecha": "24/25",
+      "cosecha_label": "25/26",
+      "is_current": false,
+      "target_date": "2025-04-29",
+      "production_kt": 4062,
+      "est_exports_kt": 203,
+      "ph_pricing_kt": 339,
+      "fs_pct": 167.0,
+      "groups_kt": {
+        "MAM": 325,
+        "JJ": 36,
+        "AS": 2,
+        "OND": 0,
+        "JF": 0
+      },
+      "month_year": 2025,
+      "month_actual_kt": 121,
+      "month_projected_kt": 121,
+      "month_groups_kt": {
+        "MAM": 87,
+        "JJ": 33,
+        "AS": 1,
+        "OND": 0,
+        "JF": 0
+      }
+    },
+    {
+      "cosecha": "23/24",
+      "cosecha_label": "24/25",
+      "is_current": false,
+      "target_date": "2024-04-29",
+      "production_kt": 3409,
+      "est_exports_kt": 1060,
+      "ph_pricing_kt": 251,
+      "fs_pct": 23.7,
+      "groups_kt": {
+        "MAM": 207,
+        "JJ": 48,
+        "AS": 1,
+        "OND": 0,
+        "JF": 0
+      },
+      "month_year": 2024,
+      "month_actual_kt": 99,
+      "month_projected_kt": 99,
+      "month_groups_kt": {
+        "MAM": 98,
+        "JJ": 1,
+        "AS": 0,
+        "OND": 0,
+        "JF": 0
+      }
+    },
+    {
+      "cosecha": "22/23",
+      "cosecha_label": "23/24",
+      "is_current": false,
+      "target_date": "2023-04-29",
+      "production_kt": 2457,
+      "est_exports_kt": 655,
+      "ph_pricing_kt": 150,
+      "fs_pct": 22.9,
+      "groups_kt": {
+        "MAM": 81,
+        "JJ": 65,
+        "AS": 9,
+        "OND": 0,
+        "JF": 0
+      },
+      "month_year": 2023,
+      "month_actual_kt": 93,
+      "month_projected_kt": 93,
+      "month_groups_kt": {
+        "MAM": 88,
+        "JJ": 5,
+        "AS": 0,
+        "OND": 0,
+        "JF": 0
+      }
+    },
+    {
+      "cosecha": "21/22",
+      "cosecha_label": "22/23",
+      "is_current": false,
+      "target_date": "2022-04-29",
+      "production_kt": 3357,
+      "est_exports_kt": 1744,
+      "ph_pricing_kt": 736,
+      "fs_pct": 42.2,
+      "groups_kt": {
+        "MAM": 638,
+        "JJ": 249,
+        "AS": 11,
+        "OND": 0,
+        "JF": 0
+      },
+      "month_year": 2022,
+      "month_actual_kt": 139,
+      "month_projected_kt": 139,
+      "month_groups_kt": {
+        "MAM": 123,
+        "JJ": 14,
+        "AS": 2,
+        "OND": 0,
+        "JF": 0
+      }
+    },
+    {
+      "cosecha": "20/21",
+      "cosecha_label": "21/22",
+      "is_current": false,
+      "target_date": "2021-04-29",
+      "production_kt": 3489,
+      "est_exports_kt": 2453,
+      "ph_pricing_kt": 1647,
+      "fs_pct": 67.1,
+      "groups_kt": {
+        "MAM": 1149,
+        "JJ": 497,
+        "AS": 64,
+        "OND": 0,
+        "JF": 0
+      },
+      "month_year": 2021,
+      "month_actual_kt": 92,
+      "month_projected_kt": 92,
+      "month_groups_kt": {
+        "MAM": 41,
+        "JJ": 41,
+        "AS": 11,
+        "OND": 0,
+        "JF": 0
+      }
+    },
+    {
+      "cosecha": "19/20",
+      "cosecha_label": "20/21",
+      "is_current": false,
+      "target_date": "2020-04-29",
+      "production_kt": 2121,
+      "est_exports_kt": 617,
+      "ph_pricing_kt": 249,
+      "fs_pct": 40.4,
+      "groups_kt": {
+        "MAM": 216,
+        "JJ": 45,
+        "AS": 0,
+        "OND": 0,
+        "JF": 0
+      },
+      "month_year": 2020,
+      "month_actual_kt": 98,
+      "month_projected_kt": 98,
+      "month_groups_kt": {
+        "MAM": 38,
+        "JJ": 51,
+        "AS": 8,
+        "OND": 0,
+        "JF": 0
+      }
+    },
+    {
+      "cosecha": "18/19",
+      "cosecha_label": "19/20",
+      "is_current": false,
+      "target_date": "2019-04-29",
+      "production_kt": 2337,
+      "est_exports_kt": 246,
+      "ph_pricing_kt": 104,
+      "fs_pct": 42.3,
+      "groups_kt": {
+        "MAM": 168,
+        "JJ": 11,
+        "AS": 19,
+        "OND": 0,
+        "JF": 0
+      },
+      "month_year": 2019,
+      "month_actual_kt": 102,
+      "month_projected_kt": 102,
+      "month_groups_kt": {
+        "MAM": 56,
+        "JJ": 43,
+        "AS": 3,
+        "OND": 0,
+        "JF": 0
+      }
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+[server]
+headless = true
+enableCORS = false
+enableXsrfProtection = false   # false para que funcione bien detrás de ngrok
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+base = "light"
