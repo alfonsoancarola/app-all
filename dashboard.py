@@ -85,9 +85,43 @@ def _matriz_path(fs_dir: Path, slug: str) -> Path:
     return fs_dir / "data" / f"matriz_{slug}.csv"
 
 
+# Para trigo solo contamos compras con destino de exportación (Up River /
+# Bahía / Necochea) — se excluye Interior.
+_WHEAT_EXPORT_PORTS = ["uprivers", "bahia", "necochea"]
+
+
 @st.cache_data(show_spinner=False)
 def _load_matriz(_fs_dir_str: str, slug: str) -> pd.DataFrame:
-    p = Path(_fs_dir_str) / "data" / f"matriz_{slug}.csv"
+    base = Path(_fs_dir_str) / "data"
+
+    if slug == "trigo":
+        # Sumamos las 3 sub-matrices de exportación
+        sub_paths = [base / f"matriz_trigo_{p}.csv" for p in _WHEAT_EXPORT_PORTS]
+        if all(p.exists() for p in sub_paths):
+            try:
+                dfs = [pd.read_csv(p) for p in sub_paths]
+            except Exception:
+                # Fallback al matriz total si algo falla al leer
+                p_total = base / "matriz_trigo.csv"
+                return pd.read_csv(p_total) if p_total.exists() else pd.DataFrame()
+
+            num_cols = ["NDJ", "FMA", "MJJ", "ASO", "NC", "total", "min"]
+            num_cols = [c for c in num_cols if c in dfs[0].columns]
+            merged = dfs[0].copy()
+            for other in dfs[1:]:
+                merged = merged.merge(
+                    other[["tipo", "label"] + num_cols],
+                    on=["tipo", "label"], how="outer", suffixes=("", "_o"),
+                )
+                for c in num_cols:
+                    co = f"{c}_o"
+                    if co in merged.columns:
+                        merged[c] = (merged[c].fillna(0) + merged[co].fillna(0)).astype(int)
+                        merged.drop(columns=[co], inplace=True)
+            return merged
+
+    # Default: leer el matriz consolidado
+    p = base / f"matriz_{slug}.csv"
     if not p.exists():
         return pd.DataFrame()
     try:

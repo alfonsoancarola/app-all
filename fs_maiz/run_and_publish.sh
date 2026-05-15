@@ -72,8 +72,8 @@ git -c user.name="fs-publisher" \
     commit -m "data: actualización automática $(date +%Y-%m-%d_%H:%M)" \
     --quiet
 
-log "Pusheando a origin/master..."
-if git push origin master --quiet; then
+log "Pusheando a origin (branch actual)..."
+if git push origin HEAD --quiet; then
     log "Push OK — Streamlit Cloud va a detectar el commit y redesployar."
     exit 0
 else

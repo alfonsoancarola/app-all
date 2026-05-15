@@ -44,16 +44,71 @@ def fmt_tn(v):
 def fmt_pct(v):
     return f"{v:.1f}%"
 
-def load_matriz(cfg: dict):
-    """Loads the matrix for the selected crop."""
-    path = DATA_DIR / cfg["matriz_csv"]
-    if not path.exists():
-        return None
+_WHEAT_EXPORT_PORTS = ["uprivers", "bahia", "necochea"]
+
+
+def _load_one_matriz_csv(path, cols_grupos):
     df = pd.read_csv(path)
+    for col in cols_grupos + ["total"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
+    return df
+
+
+def load_matriz(cfg: dict):
+    """Loads the matrix for the selected crop.
+
+    Special case para trigo: el "total" incluye interior, pero acá solo nos
+    interesan compras que van a exportación (Up River + Bahía + Necochea).
+    Sumamos las 3 sub-matrices y reconstruimos la matriz consolidada.
+    """
+    is_wheat = "trigo" in cfg.get("matriz_csv", "")
+
+    if is_wheat:
+        # Construir paths del estilo matriz_trigo_<port>.csv
+        sub_paths = [
+            DATA_DIR / f"matriz_trigo_{p}.csv" for p in _WHEAT_EXPORT_PORTS
+        ]
+        if not all(p.exists() for p in sub_paths):
+            # Fallback: si falta algún sub-matriz, usamos la global
+            path = DATA_DIR / cfg["matriz_csv"]
+            if not path.exists():
+                return None
+            df = _load_one_matriz_csv(path, cfg["grupos"])
+        else:
+            sub_dfs = [_load_one_matriz_csv(p, cfg["grupos"]) for p in sub_paths]
+            df = sub_dfs[0].copy()
+            num_cols = cfg["grupos"] + ["total"]
+            for other in sub_dfs[1:]:
+                # Mergeamos por (tipo, label) y sumamos las cols numéricas
+                df = df.merge(
+                    other[["tipo", "label"] + num_cols],
+                    on=["tipo", "label"],
+                    how="outer",
+                    suffixes=("", "_o"),
+                )
+                for c in num_cols:
+                    co = f"{c}_o"
+                    if co in df.columns:
+                        df[c] = df[c].fillna(0).astype(int) + df[co].fillna(0).astype(int)
+                        df.drop(columns=[co], inplace=True)
+            # 'low','prior','min' los tomamos del primero (no son aditivos)
+            for col in ["low", "prior", "min"]:
+                if col not in df.columns and col in sub_dfs[0].columns:
+                    df[col] = sub_dfs[0][col]
+    else:
+        path = DATA_DIR / cfg["matriz_csv"]
+        if not path.exists():
+            return None
+        df = _load_one_matriz_csv(path, cfg["grupos"])
+
     for col in cfg["grupos"] + ["total"]:
-        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
-    df["low"]   = df["low"].astype(str).str.lower() == "true"
-    df["prior"] = df["prior"].astype(str).str.lower() == "true"
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
+    if "low" in df.columns:
+        df["low"] = df["low"].astype(str).str.lower() == "true"
+    if "prior" in df.columns:
+        df["prior"] = df["prior"].astype(str).str.lower() == "true"
     return df
 
 
