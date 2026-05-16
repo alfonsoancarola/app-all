@@ -12,7 +12,7 @@ mensual,Dic-25,1591150,301950,3760,0,2400,1899260,False,False,0
 mensual,Ene-26,674229,481394,4170,0,321,1160114,False,False,0
 mensual,Feb-26,0,432625,32820,0,52514,517959,False,False,0
 mensual,Mar-26,0,219087,91193,268,208847,519395,False,False,0
-mensual,Abr-26,0,98774,173886,0,330850,603510,False,False,0
+mensual,Abr-26,0,98788,173886,0,330850,603524,False,False,0
 diario,01/04,0,4302,5410,0,10460,20172,False,False,0
 diario,06/04,0,3138,6100,0,90,9328,False,False,0
 diario,07/04,0,10203,19515,0,2430,32148,False,False,0
@@ -32,7 +32,7 @@ diario,24/04,0,4084,12810,0,11380,28274,False,False,0
 diario,27/04,0,2989,2975,0,7834,13798,False,False,0
 diario,28/04,0,2522,1940,0,54290,58752,False,False,0
 diario,29/04,0,3042,3010,0,129574,135626,False,False,0
-diario,30/04,0,1605,3575,0,6000,11180,False,False,0
+diario,30/04,0,1619,3575,0,6000,11194,False,False,0
 diario,04/05,0,0,14735,0,30650,45385,False,False,0
 diario,05/05,0,0,24057,0,2635,26692,False,False,0
 diario,06/05,0,0,55190,0,7750,62940,False,False,0
@@ -41,5 +41,5 @@ diario,08/05,0,0,15779,0,8125,23904,False,False,0
 diario,11/05,0,0,26611,0,3655,30266,False,False,0
 diario,12/05,0,0,10049,0,80279,90328,False,False,0
 diario,13/05,0,0,15720,0,11020,26740,False,False,0
-diario,14/05,0,0,22000,0,5442,27442,False,False,0
-diario,15/05,0,0,2300,0,0,2300,False,False,0
+diario,14/05,0,0,22600,0,5442,28042,False,False,0
+diario,15/05,0,0,8155,0,390,8545,False,False,0
