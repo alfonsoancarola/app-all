@@ -393,18 +393,26 @@ def render_pos_fisica(app_all_dir: Path) -> None:
             unsafe_allow_html=True,
         )
 
-        # Línea de resumen del cultivo (3 totales)
-        sum_l, sum_m, sum_r = st.columns(3)
-        sum_l.markdown(
+        # Posición = FS - Lineup Estimado (forward-looking, considera proyección)
+        total_pos = total_fs - total_lin_est
+        pos_color = "#1d6e51" if total_pos >= 0 else "#a32d2d"
+        pos_bg = ("rgba(29,158,117,0.10)"
+                  if total_pos >= 0 else "rgba(226,75,74,0.10)")
+        pos_label = "LONG (FS > LIN)" if total_pos > 0 else (
+            "SHORT (LIN > FS)" if total_pos < 0 else "FLAT")
+
+        # Línea de resumen del cultivo (4 cards: FS · LinReal · LinEst · Pos)
+        sum_cols = st.columns(4)
+        sum_cols[0].markdown(
             f"<div style='text-align:center;padding:0.4rem;"
-            f"background:rgba(21,101,192,0.10);border-radius:6px;'>"
+            f"background:rgba(29,158,117,0.10);border-radius:6px;'>"
             f"<div style='font-size:0.62rem;color:#666;letter-spacing:1px;'>"
-            f"LINEUP ESTIMADO TOTAL *</div>"
-            f"<div style='font-size:1.1rem;font-weight:700;color:#1565C0;'>"
-            f"{_fmt_tn(total_lin_est)} kt</div></div>",
+            f"FS REALIZADO</div>"
+            f"<div style='font-size:1.1rem;font-weight:700;color:#1d6e51;'>"
+            f"{_fmt_tn(total_fs)} kt</div></div>",
             unsafe_allow_html=True,
         )
-        sum_m.markdown(
+        sum_cols[1].markdown(
             f"<div style='text-align:center;padding:0.4rem;"
             f"background:rgba(46,125,50,0.10);border-radius:6px;'>"
             f"<div style='font-size:0.62rem;color:#666;letter-spacing:1px;'>"
@@ -413,16 +421,31 @@ def render_pos_fisica(app_all_dir: Path) -> None:
             f"{_fmt_tn(total_lin_real)} kt</div></div>",
             unsafe_allow_html=True,
         )
-        sum_r.markdown(
+        sum_cols[2].markdown(
             f"<div style='text-align:center;padding:0.4rem;"
-            f"background:rgba(29,158,117,0.10);border-radius:6px;'>"
+            f"background:rgba(21,101,192,0.10);border-radius:6px;'>"
             f"<div style='font-size:0.62rem;color:#666;letter-spacing:1px;'>"
-            f"FS REALIZADO HASTA AHORA</div>"
-            f"<div style='font-size:1.1rem;font-weight:700;color:#1d6e51;'>"
-            f"{_fmt_tn(total_fs)} kt</div></div>",
+            f"LINEUP ESTIMADO *</div>"
+            f"<div style='font-size:1.1rem;font-weight:700;color:#1565C0;'>"
+            f"{_fmt_tn(total_lin_est)} kt</div></div>",
             unsafe_allow_html=True,
         )
-        st.caption(f"Share histórico del puerto (sobre xls cargados): {share_str}")
+        pos_kt = total_pos / 1000
+        pos_str = f"{pos_kt:+,.0f}".replace(",", ".") + " kt"
+        sum_cols[3].markdown(
+            f"<div style='text-align:center;padding:0.4rem;"
+            f"background:{pos_bg};border-radius:6px;'>"
+            f"<div style='font-size:0.62rem;color:#666;letter-spacing:1px;'>"
+            f"POSICIÓN FÍSICA · {pos_label}</div>"
+            f"<div style='font-size:1.1rem;font-weight:700;color:{pos_color};'>"
+            f"{pos_str}</div></div>",
+            unsafe_allow_html=True,
+        )
+        st.caption(
+            f"Posición = FS realizado − Lineup estimado. Long (+) = más comprado "
+            f"que pipeline. Short (−) = más pipeline que comprado. "
+            f"Share del puerto: {share_str}"
+        )
 
         # ── Construir tabla HTML con totales en kt ──
         html = [
@@ -457,17 +480,26 @@ def render_pos_fisica(app_all_dir: Path) -> None:
                 bg, fg = _coverage_color(data["coverage_pct"])
                 asterisk = "*" if data["has_projection"] else ""
 
-                # Cell muestra los 2 totales en kt: FS y Lineup (real+proy)
+                pos = data["fs_tn"] - data["pipeline_total_tn"]
+                pos_c = "#1d6e51" if pos >= 0 else "#a32d2d"
+                pos_kt_cell = pos / 1000
+                pos_cell_str = f"{pos_kt_cell:+,.0f}".replace(",", ".")
+
+                # Cell muestra los 3 totales en kt: FS, Lineup (real+proy), Pos
                 html.append(
                     f"<td style='padding:8px 6px;background:{bg};"
                     f"border-bottom:1px solid #eee;text-align:center;'>"
-                    f"<div style='font-size:0.6rem;color:#888;letter-spacing:0.5px;'>FS</div>"
-                    f"<div style='font-weight:700;font-size:0.95rem;color:#1d6e51;'>"
-                    f"{_fmt_tn(data['fs_tn'])} <span style='font-size:0.65rem;color:#999;font-weight:500;'>kt</span></div>"
-                    f"<div style='height:3px;'></div>"
-                    f"<div style='font-size:0.6rem;color:#888;letter-spacing:0.5px;'>LINEUP{asterisk}</div>"
-                    f"<div style='font-weight:700;font-size:0.95rem;color:#1565C0;'>"
-                    f"{_fmt_tn(data['pipeline_total_tn'])} <span style='font-size:0.65rem;color:#999;font-weight:500;'>kt</span></div>"
+                    f"<div style='font-size:0.58rem;color:#888;letter-spacing:0.5px;'>FS</div>"
+                    f"<div style='font-weight:700;font-size:0.88rem;color:#1d6e51;'>"
+                    f"{_fmt_tn(data['fs_tn'])} <span style='font-size:0.6rem;color:#999;font-weight:500;'>kt</span></div>"
+                    f"<div style='height:2px;'></div>"
+                    f"<div style='font-size:0.58rem;color:#888;letter-spacing:0.5px;'>LINEUP{asterisk}</div>"
+                    f"<div style='font-weight:700;font-size:0.88rem;color:#1565C0;'>"
+                    f"{_fmt_tn(data['pipeline_total_tn'])} <span style='font-size:0.6rem;color:#999;font-weight:500;'>kt</span></div>"
+                    f"<div style='height:2px;'></div>"
+                    f"<div style='font-size:0.58rem;color:#888;letter-spacing:0.5px;'>POS</div>"
+                    f"<div style='font-weight:700;font-size:0.88rem;color:{pos_c};'>"
+                    f"{pos_cell_str} <span style='font-size:0.6rem;color:#999;font-weight:500;'>kt</span></div>"
                     f"</td>"
                 )
             html.append("</tr>")
