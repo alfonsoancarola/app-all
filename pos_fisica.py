@@ -12,11 +12,30 @@ Render: llamar `render_pos_fisica(app_all_dir)` desde el wrapper.
 from __future__ import annotations
 
 import sys
+from calendar import monthrange
 from datetime import date
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+
+
+def _bucket_end_date(slug: str, bucket: str) -> date | None:
+    """Último día del último mes del bucket. Ej. MAM maíz → 31-May-26."""
+    months = BUCKET_MONTHS_BY_SLUG.get(slug, {}).get(bucket, [])
+    if not months:
+        return None
+    yr, mn = months[-1]
+    last_day = monthrange(yr, mn)[1]
+    return date(yr, mn, last_day)
+
+
+def _biz_days_to(target: date, today: date | None = None) -> int:
+    """Días hábiles entre hoy y target inclusive. 0 si target ya pasó."""
+    today = today or date.today()
+    if target < today:
+        return 0
+    return len(pd.bdate_range(pd.Timestamp(today), pd.Timestamp(target)))
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -545,12 +564,21 @@ def render_pos_fisica(app_all_dir: Path) -> None:
 
         def _subtotal_cell_html(fs_tn, lin_real_tn, proj_tn, is_export_total: bool,
                                 biz_left: int = 0):
-            """Celda de subtotal — grid 2×2 con FS·LINEUP arriba y POS·PACE abajo."""
+            """Celda de subtotal — grid 2×2 con FS·LINEUP arriba y POS·PACE abajo.
+
+            Pace = -pos / biz_left (mismo convenio que las celdas regulares:
+            positivo = falta sumar, negativo = sobra).
+            """
             lin_total = lin_real_tn + proj_tn
             ast = "*" if proj_tn > 0 else ""
             pos = fs_tn - lin_total
             pos_c = "#1d6e51" if pos >= 0 else "#a32d2d"
-            pace = (pos / biz_left) if biz_left > 0 else None
+            pace_c = "#a32d2d" if pos < 0 else ("#1d6e51" if pos > 0 else "#888")
+            pace = (-pos / biz_left) if biz_left > 0 else None
+            days_chip_sub = (
+                f"<div style='font-size:0.5rem;color:#bbb;line-height:1;'>"
+                f"{biz_left}d</div>" if biz_left > 0 else ""
+            )
 
             if not is_export_total:
                 lin_value = "<div style='font-weight:700;font-size:0.82rem;color:#bbb;'>—</div>"
@@ -576,8 +604,9 @@ def render_pos_fisica(app_all_dir: Path) -> None:
                     pace_kt_total = pace / 1000
                     pace_str = f"{pace_kt_total:+,.0f}".replace(",", ".")
                     pace_value = (
-                        f"<div style='font-weight:700;font-size:0.82rem;color:{pos_c};'>"
+                        f"<div style='font-weight:700;font-size:0.82rem;color:{pace_c};'>"
                         f"{pace_str} <span style='font-size:0.58rem;color:#999;font-weight:500;'>kt/d</span></div>"
+                        f"{days_chip_sub}"
                     )
 
             return (
@@ -657,13 +686,26 @@ def render_pos_fisica(app_all_dir: Path) -> None:
                 pos_kt_cell = pos / 1000
                 pos_cell_str = f"{pos_kt_cell:+,.0f}".replace(",", ".")
 
-                # Pace = pos / biz_days_remaining (kt/d, signed con el mismo signo de POS)
-                if biz_days_remaining > 0:
-                    pace_cell = pos / biz_days_remaining  # tn/d
+                # Pace = -pos / biz_days_to_bucket_end
+                # Convención: si FS < Lineup (pos<0, SHORT) → pace>0
+                # = lo que falta sumar por día para cerrar el gap.
+                end_bk = _bucket_end_date(slug, b)
+                biz_left_bk = _biz_days_to(end_bk) if end_bk else 0
+                if biz_left_bk > 0:
+                    pace_cell = -pos / biz_left_bk  # tn/d, signed
                     pace_kt_cell = pace_cell / 1000
                     pace_cell_str = f"{pace_kt_cell:+,.0f}".replace(",", ".")
                 else:
                     pace_cell_str = "—"
+
+                # Color del Pace: con la convención invertida del signo, un
+                # pace POSITIVO = SHORT = falta sumar (rojo); NEGATIVO = LONG
+                # = sobra (verde). Es el INVERSO del color de POS.
+                pace_c = "#a32d2d" if pos < 0 else ("#1d6e51" if pos > 0 else "#888")
+                days_chip = (
+                    f"<div style='font-size:0.5rem;color:#bbb;line-height:1;'>"
+                    f"{biz_left_bk}d</div>" if biz_left_bk > 0 else ""
+                )
 
                 # Lineup / POS / Pace según sea Interior o export
                 if is_interior:
@@ -685,8 +727,9 @@ def render_pos_fisica(app_all_dir: Path) -> None:
                         f"{pos_cell_str} <span style='font-size:0.58rem;color:#999;font-weight:500;'>kt</span></div>"
                     )
                     pace_value_html = (
-                        f"<div style='font-weight:700;font-size:0.82rem;color:{pos_c};'>"
+                        f"<div style='font-weight:700;font-size:0.82rem;color:{pace_c};'>"
                         f"{pace_cell_str} <span style='font-size:0.58rem;color:#999;font-weight:500;'>kt/d</span></div>"
+                        f"{days_chip}"
                     )
 
                 # 2×2 grid: FS | LINEUP arriba ; POS | PACE abajo
@@ -738,9 +781,13 @@ def render_pos_fisica(app_all_dir: Path) -> None:
         )
         for b in buckets:
             ct = col_totals[b]
+            # Para el subtotal por bucket, usamos los días hábiles hasta el
+            # cierre del bucket específico (no la campaña completa).
+            end_bk_col = _bucket_end_date(slug, b)
+            biz_left_col = _biz_days_to(end_bk_col) if end_bk_col else 0
             html.append(
                 f"<td style='padding:6px 4px;text-align:center;'>"
-                f"{_subtotal_cell_html(ct['fs'], ct['real'], ct['proj'], True, biz_days_remaining)}"
+                f"{_subtotal_cell_html(ct['fs'], ct['real'], ct['proj'], True, biz_left_col)}"
                 f"</td>"
             )
         # Grand total (esquina abajo-derecha)
