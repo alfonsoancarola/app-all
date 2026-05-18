@@ -363,7 +363,7 @@ def render_pos_fisica(app_all_dir: Path) -> None:
 
     st.title("📦 Posición Física")
     st.caption(
-        "Comparación **FS vendido** (verde) vs **Lineup estimado** (azul, "
+        "Comparación **FS vendido** (verde) vs **Exports estimados** (azul, "
         "Real + Proyectado) por cultivo, destino y bucket. Los valores con "
         "`*` incluyen proyección (MARS Exports × share histórico del puerto). "
         "Color de fondo indica cobertura aproximada: 🟢 ≈100% · 🟡 gap chico · "
@@ -431,16 +431,16 @@ def render_pos_fisica(app_all_dir: Path) -> None:
         pos_real_color = "#1d6e51" if total_pos_real >= 0 else "#a32d2d"
         pos_real_bg = ("rgba(29,158,117,0.10)"
                        if total_pos_real >= 0 else "rgba(226,75,74,0.10)")
-        pos_real_label = "LONG (FS > LIN)" if total_pos_real > 0 else (
-            "SHORT (LIN > FS)" if total_pos_real < 0 else "FLAT")
+        pos_real_label = "LONG (FS > EXP)" if total_pos_real > 0 else (
+            "SHORT (EXP > FS)" if total_pos_real < 0 else "FLAT")
 
         # Posición ESTIMADA = FS - Lineup Estimado (con proyección, forward-looking)
         total_pos = total_fs - total_lin_est
         pos_color = "#1d6e51" if total_pos >= 0 else "#a32d2d"
         pos_bg = ("rgba(29,158,117,0.10)"
                   if total_pos >= 0 else "rgba(226,75,74,0.10)")
-        pos_label = "LONG (FS > LIN)" if total_pos > 0 else (
-            "SHORT (LIN > FS)" if total_pos < 0 else "FLAT")
+        pos_label = "LONG (FS > EXP)" if total_pos > 0 else (
+            "SHORT (EXP > FS)" if total_pos < 0 else "FLAT")
 
         # Pace para flat: |Pos Estimada| / días hábiles restantes hasta fin de campaña
         campaign_end = cult["campaign_end"]
@@ -479,7 +479,7 @@ def render_pos_fisica(app_all_dir: Path) -> None:
             f"<div style='text-align:center;padding:0.4rem;"
             f"background:rgba(46,125,50,0.10);border-radius:6px;'>"
             f"<div style='font-size:0.62rem;color:#666;letter-spacing:1px;'>"
-            f"LINEUP REALIZADO</div>"
+            f"EXPORTS REALIZADOS</div>"
             f"<div style='font-size:1.1rem;font-weight:700;color:#2E7D32;'>"
             f"{_fmt_tn(total_lin_real)} kt</div></div>",
             unsafe_allow_html=True,
@@ -499,7 +499,7 @@ def render_pos_fisica(app_all_dir: Path) -> None:
             f"<div style='text-align:center;padding:0.4rem;"
             f"background:rgba(21,101,192,0.10);border-radius:6px;'>"
             f"<div style='font-size:0.62rem;color:#666;letter-spacing:1px;'>"
-            f"LINEUP ESTIMADO *</div>"
+            f"EXPORTS ESTIMADOS *</div>"
             f"<div style='font-size:1.1rem;font-weight:700;color:#1565C0;'>"
             f"{_fmt_tn(total_lin_est)} kt</div></div>",
             unsafe_allow_html=True,
@@ -533,8 +533,8 @@ def render_pos_fisica(app_all_dir: Path) -> None:
             unsafe_allow_html=True,
         )
         st.caption(
-            f"Pos. Realizada = FS − Lineup Real · Pos. Estimada = FS − Lineup Estimado "
-            f"(con MARS×share). Long (+) = sobre-vendido vs pipeline · Short (−) = al revés. "
+            f"Pos. Realizada = FS − Exports Real · Pos. Estimada = FS − Exports Estimados "
+            f"(con MARS×share). Long (+) = sobre-vendido vs exports · Short (−) = al revés. "
             f"Pace a flat = |Pos. Estimada| / días hábiles hasta {campaign_end.strftime('%d %b %Y')}. "
             f"Share del puerto: {share_str}"
         )
@@ -620,7 +620,7 @@ def render_pos_fisica(app_all_dir: Path) -> None:
                 f"</div>"
                 # Top-right LINEUP
                 f"<div>"
-                f"<div style='font-size:0.55rem;color:#888;letter-spacing:0.5px;'>LINEUP{ast}</div>"
+                f"<div style='font-size:0.55rem;color:#888;letter-spacing:0.5px;'>EXPORTS{ast}</div>"
                 f"{lin_value}"
                 f"</div>"
                 # Bottom-left POS
@@ -746,7 +746,7 @@ def render_pos_fisica(app_all_dir: Path) -> None:
                     f"</div>"
                     # Top-right: LINEUP
                     f"<div>"
-                    f"<div style='font-size:0.55rem;color:#888;letter-spacing:0.5px;'>LINEUP{asterisk}</div>"
+                    f"<div style='font-size:0.55rem;color:#888;letter-spacing:0.5px;'>EXPORTS{asterisk}</div>"
                     f"{lineup_value_html}"
                     f"</div>"
                     # Bottom-left: POS

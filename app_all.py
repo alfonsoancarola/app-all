@@ -22,7 +22,7 @@ import streamlit as st
 # Config global (única llamada a set_page_config en toda la sesión)
 # ──────────────────────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="FS / Lineups / Repl.",
+    page_title="FS / Exports / Repl.",
     page_icon="🌾",
     layout="wide",
 )
@@ -60,7 +60,7 @@ APPS = {
         "script": FS_MAIZ_SCRIPT,
     },
     "lineups": {
-        "label": "Lineups",
+        "label": "Exports",
         "emoji": "🚢",
         "desc": "Embarques de granos en puertos argentinos",
         "dir": LINEUPS_DIR,
@@ -177,7 +177,7 @@ if st.session_state.current_app is None:
         unsafe_allow_html=True,
     )
 
-    st.title("🌾 FS / Lineups / Repl.")
+    st.title("🌾 FS / Exports / Repl.")
     st.caption("Elegí qué sección querés abrir.")
     st.write("")
 
