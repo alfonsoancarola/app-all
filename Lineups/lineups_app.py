@@ -159,9 +159,13 @@ EXCLUDED_ROWS = [
 # Displayed month → (file, month_state)
 #   "finalized" = only LOADED ;  "current" = LOADED + AT ROADS + LINEUP
 MONTH_FILES: dict[str, tuple[str, str]] = {
-    "March 2026": ("GRAIN-SBS-BARLEY-MALT SHIPMENTS March 2026.xls", "finalized"),
-    "April 2026": ("GRAIN-SBS-BARLEY-MALT SHIPMENTS April 2026.xls", "finalized"),
-    "May 2026":   ("GRAIN-SBS-BARLEY-MALT SHIPMENTS May 2026.xls",   "current"),
+    "November 2025": ("GRAIN-SBS-BARLEY-MALT SHIPMENTS NOV 2025.xls",   "finalized"),
+    "December 2025": ("GRAIN-SBS-BARLEY-MALT SHIPMENTS DEC 2025.xls",   "finalized"),
+    "January 2026":  ("GRAIN-SBS-BARLEY-MALT SHIPMENTS JAN 2026.xls",   "finalized"),
+    "February 2026": ("GRAIN-SBS-BARLEY-MALT SHIPMENTS FEB 2026.xls",   "finalized"),
+    "March 2026":    ("GRAIN-SBS-BARLEY-MALT SHIPMENTS March 2026.xls", "finalized"),
+    "April 2026":    ("GRAIN-SBS-BARLEY-MALT SHIPMENTS April 2026.xls", "finalized"),
+    "May 2026":      ("GRAIN-SBS-BARLEY-MALT SHIPMENTS May 2026.xls",   "current"),
 }
 
 # MARS month code ("05/2026") → label used in the app ("May 2026").
@@ -181,6 +185,10 @@ MARS_MONTH_LABEL = {
 # Campaña por defecto: usada solo como fallback cuando MARS no está disponible.
 # La campaña real se calcula dinámicamente por cultivo con get_campaign(crop).
 _DEFAULT_CAMPAIGN_MONTHS = [
+    ("November 2025",  pd.Timestamp(2025, 11, 1), pd.Timestamp(2025, 11, 30)),
+    ("December 2025",  pd.Timestamp(2025, 12, 1), pd.Timestamp(2025, 12, 31)),
+    ("January 2026",   pd.Timestamp(2026,  1, 1), pd.Timestamp(2026,  1, 31)),
+    ("February 2026",  pd.Timestamp(2026,  2, 1), pd.Timestamp(2026,  2, 28)),
     ("March 2026",     pd.Timestamp(2026,  3, 1), pd.Timestamp(2026,  3, 31)),
     ("April 2026",     pd.Timestamp(2026,  4, 1), pd.Timestamp(2026,  4, 30)),
     ("May 2026",       pd.Timestamp(2026,  5, 1), pd.Timestamp(2026,  5, 31)),

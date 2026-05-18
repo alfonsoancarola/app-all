@@ -22,9 +22,13 @@ import pandas as pd
 DATA_DIR = Path(__file__).parent
 
 MONTH_FILES: dict[str, tuple[str, str]] = {
-    "March 2026": ("GRAIN-SBS-BARLEY-MALT SHIPMENTS March 2026.xls", "finalized"),
-    "April 2026": ("GRAIN-SBS-BARLEY-MALT SHIPMENTS April 2026.xls", "finalized"),
-    "May 2026":   ("GRAIN-SBS-BARLEY-MALT SHIPMENTS May 2026.xls",   "current"),
+    "November 2025": ("GRAIN-SBS-BARLEY-MALT SHIPMENTS NOV 2025.xls",   "finalized"),
+    "December 2025": ("GRAIN-SBS-BARLEY-MALT SHIPMENTS DEC 2025.xls",   "finalized"),
+    "January 2026":  ("GRAIN-SBS-BARLEY-MALT SHIPMENTS JAN 2026.xls",   "finalized"),
+    "February 2026": ("GRAIN-SBS-BARLEY-MALT SHIPMENTS FEB 2026.xls",   "finalized"),
+    "March 2026":    ("GRAIN-SBS-BARLEY-MALT SHIPMENTS March 2026.xls", "finalized"),
+    "April 2026":    ("GRAIN-SBS-BARLEY-MALT SHIPMENTS April 2026.xls", "finalized"),
+    "May 2026":      ("GRAIN-SBS-BARLEY-MALT SHIPMENTS May 2026.xls",   "current"),
 }
 
 CARGO_NORMALIZE = {
