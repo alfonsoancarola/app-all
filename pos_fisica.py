@@ -543,42 +543,68 @@ def render_pos_fisica(app_all_dir: Path) -> None:
             grand["real"] += col_totals[b]["real"]
             grand["proj"] += col_totals[b]["proj"]
 
-        def _subtotal_cell_html(fs_tn, lin_real_tn, proj_tn, is_export_total: bool):
-            """Celda de subtotal — más densa pero con la misma estructura."""
+        def _subtotal_cell_html(fs_tn, lin_real_tn, proj_tn, is_export_total: bool,
+                                biz_left: int = 0):
+            """Celda de subtotal — grid 2×2 con FS·LINEUP arriba y POS·PACE abajo."""
             lin_total = lin_real_tn + proj_tn
             ast = "*" if proj_tn > 0 else ""
             pos = fs_tn - lin_total
             pos_c = "#1d6e51" if pos >= 0 else "#a32d2d"
+            pace = (pos / biz_left) if biz_left > 0 else None
+
             if not is_export_total:
-                # Solo Interior: Lineup no aplica
-                lin_html = (
-                    f"<div style='font-weight:700;font-size:0.88rem;color:#bbb;'>—</div>"
+                lin_value = "<div style='font-weight:700;font-size:0.82rem;color:#bbb;'>—</div>"
+                pos_value = (
+                    f"<div style='font-weight:700;font-size:0.82rem;color:#1d6e51;'>"
+                    f"{_fmt_tn(fs_tn)} <span style='font-size:0.58rem;color:#999;font-weight:500;'>kt</span></div>"
                 )
-                pos_html = (
-                    f"<div style='font-weight:700;font-size:0.88rem;color:#1d6e51;'>"
-                    f"{_fmt_tn(fs_tn)} <span style='font-size:0.6rem;color:#999;font-weight:500;'>kt</span></div>"
-                )
+                pace_value = "<div style='font-weight:700;font-size:0.82rem;color:#bbb;'>—</div>"
             else:
-                lin_html = (
-                    f"<div style='font-weight:700;font-size:0.88rem;color:#1565C0;'>"
-                    f"{_fmt_tn(lin_total)} <span style='font-size:0.6rem;color:#999;font-weight:500;'>kt</span></div>"
+                lin_value = (
+                    f"<div style='font-weight:700;font-size:0.82rem;color:#1565C0;'>"
+                    f"{_fmt_tn(lin_total)} <span style='font-size:0.58rem;color:#999;font-weight:500;'>kt</span></div>"
                 )
                 pos_kt_total = pos / 1000
                 pos_str = f"{pos_kt_total:+,.0f}".replace(",", ".")
-                pos_html = (
-                    f"<div style='font-weight:700;font-size:0.88rem;color:{pos_c};'>"
-                    f"{pos_str} <span style='font-size:0.6rem;color:#999;font-weight:500;'>kt</span></div>"
+                pos_value = (
+                    f"<div style='font-weight:700;font-size:0.82rem;color:{pos_c};'>"
+                    f"{pos_str} <span style='font-size:0.58rem;color:#999;font-weight:500;'>kt</span></div>"
                 )
+                if pace is None:
+                    pace_value = "<div style='font-weight:700;font-size:0.82rem;color:#bbb;'>—</div>"
+                else:
+                    pace_kt_total = pace / 1000
+                    pace_str = f"{pace_kt_total:+,.0f}".replace(",", ".")
+                    pace_value = (
+                        f"<div style='font-weight:700;font-size:0.82rem;color:{pos_c};'>"
+                        f"{pace_str} <span style='font-size:0.58rem;color:#999;font-weight:500;'>kt/d</span></div>"
+                    )
+
             return (
-                f"<div style='font-size:0.58rem;color:#888;letter-spacing:0.5px;'>FS</div>"
-                f"<div style='font-weight:700;font-size:0.88rem;color:#1d6e51;'>"
-                f"{_fmt_tn(fs_tn)} <span style='font-size:0.6rem;color:#999;font-weight:500;'>kt</span></div>"
-                f"<div style='height:2px;'></div>"
-                f"<div style='font-size:0.58rem;color:#888;letter-spacing:0.5px;'>LINEUP{ast}</div>"
-                f"{lin_html}"
-                f"<div style='height:2px;'></div>"
-                f"<div style='font-size:0.58rem;color:#888;letter-spacing:0.5px;'>POS</div>"
-                f"{pos_html}"
+                "<div style='display:grid;grid-template-columns:1fr 1fr;"
+                "gap:4px 6px;text-align:center;'>"
+                # Top-left FS
+                f"<div>"
+                f"<div style='font-size:0.55rem;color:#888;letter-spacing:0.5px;'>FS</div>"
+                f"<div style='font-weight:700;font-size:0.82rem;color:#1d6e51;'>"
+                f"{_fmt_tn(fs_tn)} <span style='font-size:0.58rem;color:#999;font-weight:500;'>kt</span></div>"
+                f"</div>"
+                # Top-right LINEUP
+                f"<div>"
+                f"<div style='font-size:0.55rem;color:#888;letter-spacing:0.5px;'>LINEUP{ast}</div>"
+                f"{lin_value}"
+                f"</div>"
+                # Bottom-left POS
+                f"<div style='border-top:1px solid rgba(0,0,0,0.06);padding-top:3px;'>"
+                f"<div style='font-size:0.55rem;color:#888;letter-spacing:0.5px;'>POS</div>"
+                f"{pos_value}"
+                f"</div>"
+                # Bottom-right PACE
+                f"<div style='border-top:1px solid rgba(0,0,0,0.06);padding-top:3px;'>"
+                f"<div style='font-size:0.55rem;color:#888;letter-spacing:0.5px;'>PACE</div>"
+                f"{pace_value}"
+                f"</div>"
+                "</div>"
             )
 
         html = [
@@ -631,47 +657,74 @@ def render_pos_fisica(app_all_dir: Path) -> None:
                 pos_kt_cell = pos / 1000
                 pos_cell_str = f"{pos_kt_cell:+,.0f}".replace(",", ".")
 
-                # Lineup line: para Interior mostramos "—" porque no aplica
-                if is_interior:
-                    lineup_html = (
-                        f"<div style='font-weight:700;font-size:0.88rem;color:#bbb;'>"
-                        f"— <span style='font-size:0.55rem;color:#999;'>no aplica</span></div>"
-                    )
-                    pos_html = (
-                        f"<div style='font-weight:700;font-size:0.88rem;color:#1d6e51;'>"
-                        f"{_fmt_tn(data['fs_tn'])} <span style='font-size:0.6rem;color:#999;font-weight:500;'>kt</span></div>"
-                    )
+                # Pace = pos / biz_days_remaining (kt/d, signed con el mismo signo de POS)
+                if biz_days_remaining > 0:
+                    pace_cell = pos / biz_days_remaining  # tn/d
+                    pace_kt_cell = pace_cell / 1000
+                    pace_cell_str = f"{pace_kt_cell:+,.0f}".replace(",", ".")
                 else:
-                    lineup_html = (
-                        f"<div style='font-weight:700;font-size:0.88rem;color:#1565C0;'>"
-                        f"{_fmt_tn(data['pipeline_total_tn'])} <span style='font-size:0.6rem;color:#999;font-weight:500;'>kt</span></div>"
+                    pace_cell_str = "—"
+
+                # Lineup / POS / Pace según sea Interior o export
+                if is_interior:
+                    lineup_value_html = (
+                        "<div style='font-weight:700;font-size:0.82rem;color:#bbb;'>—</div>"
                     )
-                    pos_html = (
-                        f"<div style='font-weight:700;font-size:0.88rem;color:{pos_c};'>"
-                        f"{pos_cell_str} <span style='font-size:0.6rem;color:#999;font-weight:500;'>kt</span></div>"
+                    pos_value_html = (
+                        f"<div style='font-weight:700;font-size:0.82rem;color:#1d6e51;'>"
+                        f"{_fmt_tn(data['fs_tn'])} <span style='font-size:0.58rem;color:#999;font-weight:500;'>kt</span></div>"
+                    )
+                    pace_value_html = "<div style='font-weight:700;font-size:0.82rem;color:#bbb;'>—</div>"
+                else:
+                    lineup_value_html = (
+                        f"<div style='font-weight:700;font-size:0.82rem;color:#1565C0;'>"
+                        f"{_fmt_tn(data['pipeline_total_tn'])} <span style='font-size:0.58rem;color:#999;font-weight:500;'>kt</span></div>"
+                    )
+                    pos_value_html = (
+                        f"<div style='font-weight:700;font-size:0.82rem;color:{pos_c};'>"
+                        f"{pos_cell_str} <span style='font-size:0.58rem;color:#999;font-weight:500;'>kt</span></div>"
+                    )
+                    pace_value_html = (
+                        f"<div style='font-weight:700;font-size:0.82rem;color:{pos_c};'>"
+                        f"{pace_cell_str} <span style='font-size:0.58rem;color:#999;font-weight:500;'>kt/d</span></div>"
                     )
 
+                # 2×2 grid: FS | LINEUP arriba ; POS | PACE abajo
                 html.append(
-                    f"<td style='padding:8px 6px;background:{bg};"
+                    f"<td style='padding:6px 4px;background:{bg};"
                     f"border-bottom:1px solid #eee;text-align:center;'>"
-                    f"<div style='font-size:0.58rem;color:#888;letter-spacing:0.5px;'>FS</div>"
-                    f"<div style='font-weight:700;font-size:0.88rem;color:#1d6e51;'>"
-                    f"{_fmt_tn(data['fs_tn'])} <span style='font-size:0.6rem;color:#999;font-weight:500;'>kt</span></div>"
-                    f"<div style='height:2px;'></div>"
-                    f"<div style='font-size:0.58rem;color:#888;letter-spacing:0.5px;'>LINEUP{asterisk}</div>"
-                    f"{lineup_html}"
-                    f"<div style='height:2px;'></div>"
-                    f"<div style='font-size:0.58rem;color:#888;letter-spacing:0.5px;'>POS</div>"
-                    f"{pos_html}"
-                    f"</td>"
+                    f"<div style='display:grid;grid-template-columns:1fr 1fr;"
+                    f"gap:4px 6px;text-align:center;'>"
+                    # Top-left: FS
+                    f"<div>"
+                    f"<div style='font-size:0.55rem;color:#888;letter-spacing:0.5px;'>FS</div>"
+                    f"<div style='font-weight:700;font-size:0.82rem;color:#1d6e51;'>"
+                    f"{_fmt_tn(data['fs_tn'])} <span style='font-size:0.58rem;color:#999;font-weight:500;'>kt</span></div>"
+                    f"</div>"
+                    # Top-right: LINEUP
+                    f"<div>"
+                    f"<div style='font-size:0.55rem;color:#888;letter-spacing:0.5px;'>LINEUP{asterisk}</div>"
+                    f"{lineup_value_html}"
+                    f"</div>"
+                    # Bottom-left: POS
+                    f"<div style='border-top:1px solid rgba(0,0,0,0.06);padding-top:3px;'>"
+                    f"<div style='font-size:0.55rem;color:#888;letter-spacing:0.5px;'>POS</div>"
+                    f"{pos_value_html}"
+                    f"</div>"
+                    # Bottom-right: PACE
+                    f"<div style='border-top:1px solid rgba(0,0,0,0.06);padding-top:3px;'>"
+                    f"<div style='font-size:0.55rem;color:#888;letter-spacing:0.5px;'>PACE</div>"
+                    f"{pace_value_html}"
+                    f"</div>"
+                    f"</div></td>"
                 )
             # Subtotal de fila (todos los buckets para este destino)
             rt = row_totals[d_slug]
             html.append(
-                f"<td style='padding:8px 6px;background:rgba(0,0,0,0.04);"
+                f"<td style='padding:6px 4px;background:rgba(0,0,0,0.04);"
                 f"border-bottom:1px solid #eee;text-align:center;"
                 f"border-left:2px solid rgba(0,0,0,0.08);'>"
-                f"{_subtotal_cell_html(rt['fs'], rt['real'], rt['proj'], rt['any_export'])}"
+                f"{_subtotal_cell_html(rt['fs'], rt['real'], rt['proj'], rt['any_export'], biz_days_remaining)}"
                 f"</td>"
             )
             html.append("</tr>")
@@ -686,16 +739,16 @@ def render_pos_fisica(app_all_dir: Path) -> None:
         for b in buckets:
             ct = col_totals[b]
             html.append(
-                f"<td style='padding:8px 6px;text-align:center;'>"
-                f"{_subtotal_cell_html(ct['fs'], ct['real'], ct['proj'], True)}"
+                f"<td style='padding:6px 4px;text-align:center;'>"
+                f"{_subtotal_cell_html(ct['fs'], ct['real'], ct['proj'], True, biz_days_remaining)}"
                 f"</td>"
             )
         # Grand total (esquina abajo-derecha)
         html.append(
-            f"<td style='padding:8px 6px;text-align:center;"
+            f"<td style='padding:6px 4px;text-align:center;"
             f"background:rgba(0,0,0,0.07);"
             f"border-left:2px solid rgba(0,0,0,0.08);'>"
-            f"{_subtotal_cell_html(grand['fs'], grand['real'], grand['proj'], True)}"
+            f"{_subtotal_cell_html(grand['fs'], grand['real'], grand['proj'], True, biz_days_remaining)}"
             f"</td>"
         )
         html.append("</tr>")
