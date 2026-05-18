@@ -25,13 +25,17 @@ import streamlit as st
 
 CULTIVOS = {
     "maiz":   {"label": "🌽 Corn",        "lineups_cargo": "Maize",
-               "buckets": ["MAM", "JJ", "AS", "OND", "JF"]},
+               "buckets": ["MAM", "JJ", "AS", "OND", "JF"],
+               "campaign_end": date(2027, 2, 28)},
     "trigo":  {"label": "🌾 Bread Wheat", "lineups_cargo": "Wheat",
-               "buckets": ["NDJ", "FMA", "MJJ", "ASO"]},
+               "buckets": ["NDJ", "FMA", "MJJ", "ASO"],
+               "campaign_end": date(2026, 10, 31)},
     "sorgo":  {"label": "🌱 Sorghum",     "lineups_cargo": "Sorghum",
-               "buckets": ["MAM", "JJ", "AS", "OND", "JF"]},
+               "buckets": ["MAM", "JJ", "AS", "OND", "JF"],
+               "campaign_end": date(2027, 2, 28)},
     "cebada": {"label": "🌿 Feed Barley", "lineups_cargo": "Barley",
-               "buckets": ["NDJ", "FMA", "MJJ", "ASO"]},
+               "buckets": ["NDJ", "FMA", "MJJ", "ASO"],
+               "campaign_end": date(2026, 10, 31)},
 }
 
 # Label "humanos" de cada bucket (para subtítulos del heatmap)
@@ -419,9 +423,30 @@ def render_pos_fisica(app_all_dir: Path) -> None:
         pos_label = "LONG (FS > LIN)" if total_pos > 0 else (
             "SHORT (LIN > FS)" if total_pos < 0 else "FLAT")
 
-        # Línea de resumen (5 cards):
-        # FS · LinReal · PosReal · LinEst · PosEst
-        sum_cols = st.columns(5)
+        # Pace para flat: |Pos Estimada| / días hábiles restantes hasta fin de campaña
+        campaign_end = cult["campaign_end"]
+        today_d = date.today()
+        if today_d <= campaign_end:
+            biz_left = pd.bdate_range(pd.Timestamp(today_d),
+                                       pd.Timestamp(campaign_end))
+            biz_days_remaining = len(biz_left)
+        else:
+            biz_days_remaining = 0
+        if biz_days_remaining > 0:
+            pace_to_flat = abs(total_pos) / biz_days_remaining  # tn/día
+        else:
+            pace_to_flat = None
+        # Hint sobre qué hace falta (si pos<0 hay que sumar lineup; si >0 al revés)
+        if total_pos < 0:
+            pace_hint = "↑ vender/embarcar más"
+        elif total_pos > 0:
+            pace_hint = "↓ comprar/cubrir más"
+        else:
+            pace_hint = "ya estás flat"
+
+        # Línea de resumen (6 cards):
+        # FS · LinReal · PosReal · LinEst · PosEst · Pace para flat
+        sum_cols = st.columns(6)
         sum_cols[0].markdown(
             f"<div style='text-align:center;padding:0.4rem;"
             f"background:rgba(29,158,117,0.10);border-radius:6px;'>"
@@ -471,10 +496,27 @@ def render_pos_fisica(app_all_dir: Path) -> None:
             f"{pos_str}</div></div>",
             unsafe_allow_html=True,
         )
+        # 6ta card: Pace para llegar a flat
+        if pace_to_flat is None:
+            pace_str = "—"
+        else:
+            pace_kt = pace_to_flat / 1000
+            pace_str = f"{pace_kt:,.0f}".replace(",", ".") + " kt/d"
+        sum_cols[5].markdown(
+            f"<div style='text-align:center;padding:0.4rem;"
+            f"background:rgba(120,120,120,0.10);border-radius:6px;'>"
+            f"<div style='font-size:0.62rem;color:#666;letter-spacing:1px;'>"
+            f"PACE A FLAT · {biz_days_remaining}d</div>"
+            f"<div style='font-size:1.1rem;font-weight:700;color:#444;'>"
+            f"{pace_str}</div>"
+            f"<div style='font-size:0.6rem;color:#888;'>{pace_hint}</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
         st.caption(
-            f"Pos. Realizada = FS − Lineup Real (sin proyección) · "
-            f"Pos. Estimada = FS − Lineup Estimado (con MARS×share). "
-            f"Long (+) = más comprado que embarcado · Short (−) = al revés. "
+            f"Pos. Realizada = FS − Lineup Real · Pos. Estimada = FS − Lineup Estimado "
+            f"(con MARS×share). Long (+) = sobre-vendido vs pipeline · Short (−) = al revés. "
+            f"Pace a flat = |Pos. Estimada| / días hábiles hasta {campaign_end.strftime('%d %b %Y')}. "
             f"Share del puerto: {share_str}"
         )
 
