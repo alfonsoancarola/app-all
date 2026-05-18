@@ -82,6 +82,37 @@ BUCKETS_BY_SLUG = {
     "cebada": _BUCKETS_TRIGO_CEBADA,
 }
 
+# Composición inversa de los buckets: cada bucket → lista de meses
+# (year, month) que lo componen. Necesario para sumar Lineups across
+# todos los meses del bucket.
+_BUCKET_MONTHS_MAIZ_SORGO = {
+    "MAM": [(2026, 3), (2026, 4), (2026, 5)],
+    "JJ":  [(2026, 6), (2026, 7)],
+    "AS":  [(2026, 8), (2026, 9)],
+    "OND": [(2026, 10), (2026, 11), (2026, 12)],
+    "JF":  [(2027, 1), (2027, 2)],
+}
+_BUCKET_MONTHS_TRIGO_CEBADA = {
+    "NDJ": [(2025, 11), (2025, 12), (2026, 1)],
+    "FMA": [(2026, 2), (2026, 3), (2026, 4)],
+    "MJJ": [(2026, 5), (2026, 6), (2026, 7)],
+    "ASO": [(2026, 8), (2026, 9), (2026, 10)],
+}
+
+BUCKET_MONTHS_BY_SLUG = {
+    "maiz":   _BUCKET_MONTHS_MAIZ_SORGO,
+    "sorgo":  _BUCKET_MONTHS_MAIZ_SORGO,
+    "trigo":  _BUCKET_MONTHS_TRIGO_CEBADA,
+    "cebada": _BUCKET_MONTHS_TRIGO_CEBADA,
+}
+
+# Para formatear "May 2026" en el label de Lineups
+_MONTH_NAMES = {
+    1: "January", 2: "February", 3: "March", 4: "April",
+    5: "May", 6: "June", 7: "July", 8: "August",
+    9: "September", 10: "October", 11: "November", 12: "December",
+}
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Helpers
@@ -182,9 +213,16 @@ def render_pos_fisica(app_all_dir: Path) -> None:
     df_matriz = _load_matriz_puerto(str(fs_dir), cultivo_slug, destino_slug)
     fs_total = _fs_bucket_total(df_matriz, bucket)
 
-    # ── Lineups Pipeline ────────────────────────────────────────────────────
+    # ── Lineups Pipeline (sumando TODOS los meses del bucket) ──────────────
     sailed = roads = lineup = 0
-    lu_month_label = month_sel_label  # ej "May 2026" — coincide con MONTH del loader
+    bucket_months = BUCKET_MONTHS_BY_SLUG[cultivo_slug].get(bucket, [])
+    # Convertir (year, month) → labels tipo "May 2026"
+    bucket_month_labels = [
+        f"{_MONTH_NAMES[m]} {y}" for (y, m) in bucket_months
+    ]
+    # Cuáles tenemos data en Lineups (sólo informativo)
+    months_with_data: list[str] = []
+    months_missing: list[str] = []
     try:
         if str(lineups_dir) not in sys.path:
             sys.path.insert(0, str(lineups_dir))
@@ -192,8 +230,14 @@ def render_pos_fisica(app_all_dir: Path) -> None:
 
         df_lu = lu.load_for_crop(cultivo_slug, lineups_dir)
         if not df_lu.empty:
+            available_months = set(df_lu["MONTH"].unique())
+            for lbl in bucket_month_labels:
+                if lbl in available_months:
+                    months_with_data.append(lbl)
+                else:
+                    months_missing.append(lbl)
             mask = (
-                (df_lu["MONTH"] == lu_month_label) &
+                df_lu["MONTH"].isin(bucket_month_labels) &
                 (df_lu["ZONE"] == lu_zone)
             )
             sub = df_lu[mask]
@@ -237,20 +281,29 @@ def render_pos_fisica(app_all_dir: Path) -> None:
             unsafe_allow_html=True,
         )
 
+    # Texto chiquito describiendo qué meses se sumaron en Lineups
+    bucket_months_str = ", ".join(
+        m.split()[0][:3] for m in bucket_month_labels
+    )  # ej. "Mar, Apr, May"
+    lu_subtitle = f"Sailed + At Roads + Lineup ({bucket_months_str}) · {dest_lbl}"
+    if months_missing:
+        miss_str = ", ".join(m.split()[0][:3] for m in months_missing)
+        lu_subtitle += f"<br/><span style='color:#a32d2d;'>Sin data en xls para: {miss_str}</span>"
+
     with c_lu:
         st.markdown(
             f"""
             <div style='text-align:center;padding:1rem 0.5rem;
                         background:rgba(21,101,192,0.08);border-radius:10px;'>
                 <div style='font-size:0.75rem;color:#888;letter-spacing:1px;'>
-                    LINEUPS · pipeline {month_sel_label}
+                    LINEUPS · pipeline bucket {bucket}
                 </div>
                 <div style='font-size:2.2rem;font-weight:700;color:#1565C0;
                             line-height:1.1;margin:0.4rem 0;'>
                     {_fmt_tn(pipeline_total)} kt
                 </div>
-                <div style='font-size:0.7rem;color:#666;'>
-                    Sailed + At Roads + Lineup en <b>{dest_lbl}</b>
+                <div style='font-size:0.7rem;color:#666;line-height:1.3;'>
+                    {lu_subtitle}
                 </div>
             </div>
             """,
@@ -300,10 +353,12 @@ def render_pos_fisica(app_all_dir: Path) -> None:
     )
 
     # ── Caption ─────────────────────────────────────────────────────────────
+    bucket_months_full = ", ".join(bucket_month_labels)
     st.caption(
-        f"FS leído de `matriz_{cultivo_slug}_{destino_slug}.csv`. "
-        f"Lineups filtrado por CARGO=**{cargo}** + ZONE=**{lu_zone}** + "
-        f"MONTH=**{lu_month_label}**. "
-        f"Bucket FS = **{bucket}** (cosecha en curso). "
-        f"Para months del próximo crop year se mostraría como NC, no implementado en esta vista."
+        f"FS leído de `matriz_{cultivo_slug}_{destino_slug}.csv` (suma del "
+        f"bucket **{bucket}**). "
+        f"Lineups: CARGO=**{cargo}** + ZONE=**{lu_zone}** + MONTH ∈ "
+        f"{{{bucket_months_full}}} (suma de los meses del bucket que estén "
+        f"cargados en `Lineups/`). "
+        f"Para el próximo crop year se mostraría como NC, no implementado acá."
     )
