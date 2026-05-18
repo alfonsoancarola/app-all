@@ -5,16 +5,24 @@ que combina Farmer Selling + Lineups + Dashboard ejecutivo.
 
 ## Qué es esto
 
-Una única app de Streamlit con un menú de tres botones:
+Una única app de Streamlit con un menú de **cuatro** botones:
 
-- 📊 **Dashboard** — vista ejecutiva con pizarra, FS de ayer/semana,
-  nuestras compras (Recap), Monthly Pace 2×2, Top 5 shippers 2×2.
+- 📊 **Dashboard** — vista ejecutiva con pizarra (con MAT + CBOT +
+  Replacement), Farmer Selling vs LDC ayer/semana/pace OC unificado en
+  un solo card por cultivo, Monthly Pace 2×2, Top 5 shippers 2×2 (con 4
+  barras por shipper: Total/Sailed/AtRoads/Lineup).
 - 🌽 **Farmer Selling** — la app `fs_maiz/app.py` original, ejecutada en
-  el mismo proceso por el wrapper.
-- 🚢 **Lineups** — la app `Lineups/lineups_app.py` original, ejecutada
-  igual.
+  el mismo proceso por el wrapper. Solo se muestran 3 tabs: Monthly Pace,
+  Charts, Origin map (Matrix y Destinations están desactivadas).
+- 🚢 **Lineups** — la app `Lineups/lineups_app.py` original, con overlay
+  de compras FS (violeta) sobre los charts mensuales.
+- 📦 **Pos. Física** — heatmap consolidado (sin selectores) por cultivo:
+  rows = 4 destinos (Up River + Bahía + Necochea + Interior), cols =
+  buckets de delivery, cada celda muestra FS / Lineup / Posición.
+  Subtotales por destino y por bucket + grand total por cultivo.
 
-El menú está en `app_all.py`. El dashboard nativo está en `dashboard.py`.
+El menú está en `app_all.py`. El dashboard y la pos. física son módulos
+nativos (`dashboard.py`, `pos_fisica.py`).
 
 ## Arquitectura del wrapper
 
@@ -41,10 +49,12 @@ una.
 
 ```
 10. App All/                          ← repo raíz (en GitHub: app-all)
-├── app_all.py                        ← launcher
+├── app_all.py                        ← launcher (4 botones)
 ├── dashboard.py                      ← módulo nativo del Dashboard
+├── pos_fisica.py                     ← módulo nativo de Pos. Física
+├── Makefile                          ← make daily/precios/recap/run/status/push
 ├── requirements.txt                  ← deps combinadas
-├── README.md, CLAUDE.md, DEPLOY.md
+├── README.md, CLAUDE.md, COMMANDS.md, DEPLOY.md
 ├── run_ngrok.sh                      ← launcher + tunnel local
 ├── .streamlit/config.toml            ← light theme, XSRF off para ngrok
 │
@@ -77,8 +87,16 @@ una.
 │
 ├── Lineups/                          ← app embebida 2
 │   ├── lineups_app.py
-│   ├── _lineups_loader.py            ← parser sin streamlit, lo usa el dashboard
-│   ├── GRAIN-SBS-BARLEY-MALT SHIPMENTS <Mes 2026>.xls
+│   ├── _lineups_loader.py            ← parser sin streamlit, lo usa el
+│   │                                   dashboard + pos_fisica. Devuelve
+│   │                                   CARGO/TONS/ETA/STATUS/SHIPPER/PORT/ZONE
+│   ├── GRAIN-SBS-BARLEY-MALT SHIPMENTS NOV 2025.xls   ← 7 xls cargados
+│   ├── GRAIN-SBS-BARLEY-MALT SHIPMENTS DEC 2025.xls      hoy (Nov 25 → May 26)
+│   ├── GRAIN-SBS-BARLEY-MALT SHIPMENTS JAN 2026.xls
+│   ├── GRAIN-SBS-BARLEY-MALT SHIPMENTS FEB 2026.xls
+│   ├── GRAIN-SBS-BARLEY-MALT SHIPMENTS March 2026.xls
+│   ├── GRAIN-SBS-BARLEY-MALT SHIPMENTS April 2026.xls
+│   ├── GRAIN-SBS-BARLEY-MALT SHIPMENTS May 2026.xls
 │   └── .venv/                        ← NO va al repo
 │
 ├── 0. MARS/                          ← Country Balance Sheets (LDC interno)
@@ -199,33 +217,95 @@ El chart Monthly Pace usa eje X **ordinal** (`dia:O`), no temporal. Eso
 hace que sábados y domingos no aparezcan como huecos planos en la curva —
 lunes a viernes quedan visualmente contiguos.
 
+### Pos. Física: bucket → meses
+
+Cada bucket de FS agrupa 2 o 3 meses de delivery:
+
+- Maíz / Sorgo: MAM=Mar–May, JJ=Jun–Jul, AS=Aug–Sep, OND=Oct–Dec, JF=Jan–Feb
+- Trigo / Cebada: NDJ=Nov–Jan, FMA=Feb–Apr, MJJ=May–Jul, ASO=Aug–Oct
+
+En `pos_fisica.py` están las constantes `BUCKETS_BY_SLUG` (mes → bucket)
+y `BUCKET_MONTHS_BY_SLUG` (bucket → lista de meses). El heatmap suma
+**TODOS los meses del bucket** en Lineups para ser apples-to-apples
+con la suma del bucket de FS.
+
+### Pos. Física: Interior no tiene Lineup
+
+Interior está en la 4ta columna del heatmap pero su **Lineup siempre es 0**
+(no exporta — consumo doméstico). La columna se muestra con fondo gris
+neutro, el celda Lineup dice "—", y `POS = FS` para esos casos. Sirve
+para reconciliar el total FS con el FS app que sí incluye Interior.
+
+### Pos. Física: proyección Lineups con MARS × share
+
+Para los meses del bucket **sin xls cargado** (ej. JJ hoy = Jun+Jul 26),
+el Lineup se **proyecta**:
+
+```
+proj_per_month = MARS_Exports[month] × port_share
+```
+
+Donde `port_share` es la fracción `total_zone_tons / total_cargo_tons`
+calculada sobre **todos los xls cargados** (estable, aggregate). Se ve
+con un asterisco `*` en la celda y en los totales. La proyección NO se
+breakdownea por Sailed/Roads/Lineup — es un total agregado.
+
+Sumar más xls al directorio Lineups/ (cuando llegan los del mes nuevo)
+reduce la parte proyectada y aumenta la parte real automáticamente.
+
+### Pos. Física: Posición = FS − Lineup estimado
+
+`Posición` se calcula como `FS_realizado − Lineup_estimado_total`
+(donde estimado = real + proyectado). Convención de signos:
+- **Positivo (LONG)** 🟢 — vendimos más en FS de lo que vamos a embarcar.
+- **Negativo (SHORT)** 🔴 — vamos a embarcar más de lo vendido (hay que
+  comprar más o cubrir con stock).
+- **Cerca de cero** — alineado.
+
+Es razonable que los buckets futuros (JJ/AS/OND/JF en maíz; ASO en
+trigo) muestren SHORT grande, porque MARS proyecta el flujo completo
+pero FS solo registra lo ya fijado.
+
+### Pos. Física: subtotales por destino y bucket
+
+El heatmap tiene una columna `Total` a la derecha (suma por destino,
+todos los buckets) y una fila `Total` abajo (suma por bucket, todos los
+destinos). La celda esquina-inferior-derecha es el grand total — debería
+matchear con las cards del summary arriba del heatmap.
+
 ## Comandos clave
+
+Hay un `Makefile` en la raíz de `10. App All/` que envuelve todo. Tipear
+`make` (sin args) muestra el help. Ver también `COMMANDS.md` para el
+cheat sheet completo.
 
 ```bash
 cd "/Users/alfonsoancarola/10. App All"
 
-# Correr local (con ngrok)
-./run_ngrok.sh
+# Correr la app
+make run                              # streamlit local
+make ngrok                            # streamlit + ngrok tunnel
 
-# Correr local sin ngrok
-source .venv/bin/activate
-streamlit run app_all.py
+# Status: cuándo se actualizó cada fuente
+make status
 
-# Pipeline diario manual (refresca data FS)
-cd fs_maiz && make daily             # ~5 min, full pipeline (SIO + MAGYP + matrices + precios)
-cd fs_maiz && make precios           # ~10 seg, solo precios del boletín BCR (pizarra + MAT + CBOT + MINAGRI)
-cd fs_maiz && make pizarra           # ~5 seg, solo pizarra CAC intra-día
+# Pipeline FS (delegan a fs_maiz/)
+make daily                            # ~5 min, full pipeline
+make precios                          # ~10 seg, pizarra + MAT + CBOT + MINAGRI
+make pizarra                          # ~5 seg, solo pizarra CAC intra-día
+make sio                              # solo descarga SIO
+make minagri                          # solo chequea MAGYP
 
-# Forzar el cron a correr ahora
+# Procesar Recap LDC (compras propias)
+make recap CONSO=RecapConsolidadoFOB_<DD-MM-YYYY>.xls
+
+# Git
+make push MSG="lo que cambiaste"      # add + commit + push
+
+# Cron: forzar corrida + ver logs + reprogramar
 launchctl start com.$(whoami).fsmaiz
-
-# Ver logs del cron
 tail -f fs_maiz/launchd.log
-
-# Reprogramar el cron
-cd fs_maiz
-make unschedule
-make schedule HORAS=10:45,18:45
+cd fs_maiz && make unschedule && make schedule HORAS=10:45,18:45
 ```
 
 ## Cómo iterar hacia adelante
@@ -294,6 +374,38 @@ negativa del Recap, así que al sumarlas restan automáticamente.
 `_WHEAT_EXPORT_PORTS` en `fs_maiz/app.py` y `dashboard.py`. Si querés
 agregar el Interior de vuelta: ponelo en esa lista.
 
+### Agregar un mes nuevo de Lineups (Alpemar)
+
+Cuando llega un xls nuevo de Alpemar (mensual):
+
+1. Guardalo en `Lineups/` con un nombre tipo
+   `GRAIN-SBS-BARLEY-MALT SHIPMENTS <MES Año>.xls`. Convenciones que el
+   loader ya soporta: meses en uppercase 3-letter (`NOV 2025`, `DEC
+   2025`, `JAN 2026`, etc.) o nombre completo (`March 2026`, `April
+   2026`, etc.).
+2. Editar `MONTH_FILES` en **dos** lugares:
+   - `Lineups/_lineups_loader.py`
+   - `Lineups/lineups_app.py`
+   La key del dict es el label en formato "Month YYYY" full (ej.
+   `"November 2025"`); el value es `(filename, kind)` donde kind =
+   `"finalized"` o `"current"`.
+3. Si es un mes anterior al rango actual, también extender
+   `_DEFAULT_CAMPAIGN_MONTHS` en `lineups_app.py` para que los charts
+   anuales lo incluyan.
+4. Commit + push. El dashboard y Pos. Física lo levantan solos.
+
+Cada xls nuevo cargado **reduce automáticamente** la parte proyectada
+en Pos. Física (porque ese mes deja de estar en `missing` y pasa a
+ser real).
+
+### Cambiar la regla de Posición Física
+
+En `pos_fisica.py`, la posición se computa en el cell como
+`pos = data["fs_tn"] - data["pipeline_total_tn"]`. Si quisieras que use
+solo el lineup real (no estimado), cambialo a
+`pos = data["fs_tn"] - data["pipeline_real_tn"]`. Ojo de actualizar
+también la card de summary `total_pos` en la misma lógica.
+
 ## Cosas a evitar
 
 - **No llamar `st.set_page_config()` dentro de `fs_maiz/app.py` o
@@ -306,6 +418,17 @@ agregar el Interior de vuelta: ponelo en esa lista.
   Si querés un override, hacelo en `actualizar_fs.py`.
 - **No mezclar `git status` antes de saber qué está en el .gitignore** —
   el `prices_history.jsonl` crece a ~5 KB/día y entra al repo (es chico, OK).
+- **No olvidar que MONTH_FILES está en DOS lugares** (loader y
+  lineups_app.py). Si actualizás uno solo, el dashboard ve el mes nuevo
+  pero la Lineups app no — o al revés.
+- **No leer `matriz_<slug>.csv` directo para trigo en código nuevo** — el
+  loader en `fs_maiz/app.py` y `dashboard.py` ya hace el merge de las 3
+  sub-matrices de exportación. Si copiás código de otra parte que hace
+  `pd.read_csv("matriz_trigo.csv")`, vas a estar leyendo data con
+  Interior incluido.
+- **No cambiar la `lineups_zone` de Interior a un string** en
+  `pos_fisica.py` — `None` es el flag que el código usa para saber que
+  no debe filtrar Lineups (Interior no exporta).
 
 ## Deploy (pendiente)
 
