@@ -250,7 +250,8 @@
       "fecha": "2026-05-06",
       "ph_fijado_acum_kt": 2800.3,
       "ph_acum_kt": 2739.2,
-      "fij_acum_kt": 61.1
+      "fij_acum_kt": 61.1,
+      "a_fijar_acum_kt": 17.7
     }
   ],
   "_actualizado": "2026-05-06",

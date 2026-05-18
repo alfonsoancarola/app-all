@@ -232,8 +232,13 @@ def extraer_ph_fijado(html_bytes: bytes,
                       cultivo: str = "Maíz",
                       cosecha: str = "25/26",
                       seccion: str = "Compras Sector Exportador"
-                      ) -> tuple[float, float, dict]:
-    """Devuelve (ph_kt, fijado_kt, debug). Suma PH+Fijado para el cultivo/cosecha."""
+                      ) -> tuple[float, float, float | None, dict]:
+    """Devuelve (ph_kt, fijado_kt, a_fijar_kt, debug).
+
+    a_fijar_kt es la columna "Saldo a Fijar" de MAGYP — la posición física
+    vendida pero todavía con precio abierto. Puede ser None si la columna
+    no aparece en el panel (cosechas viejas a veces no la traen).
+    """
     panel = _panel_para_cultivo(html_bytes, cultivo)
     if panel is not None:
         table = _tabla_del_panel(panel)
@@ -263,11 +268,17 @@ def extraer_ph_fijado(html_bytes: bytes,
         col_fij = _indice_columna(headers, ["TOTAL", "FIJAD"])
     if col_ph is None or col_fij is None:
         raise RuntimeError(f"No identifiqué columnas PH/Fijado. Headers={headers}")
+    # Columna "Saldo a Fijar" — vendido al exportador pero todavía con
+    # precio abierto. Es lo que falta para conocer la posición física real.
+    col_afij = _indice_columna(headers, ["SALDO", "FIJAR"])
+    if col_afij is None:
+        col_afij = _indice_columna(headers, ["A FIJAR"])
 
     seccion_target = _strip_accents(seccion)
     cosecha_target = cosecha.strip().replace("/", "/")
 
     ph = fij = None
+    a_fijar = None
     matched_row_idx = None
     seccion_actual = ""
     for ri in range(1, len(rows)):
@@ -283,8 +294,12 @@ def extraer_ph_fijado(html_bytes: bytes,
         if cosecha_target in joined and not _strip_accents(joined).startswith("TOTAL"):
             ph_v = _to_float_ar(row[col_ph]) if col_ph < len(row) else None
             fij_v = _to_float_ar(row[col_fij]) if col_fij < len(row) else None
+            afij_v = (_to_float_ar(row[col_afij])
+                      if (col_afij is not None and col_afij < len(row))
+                      else None)
             if ph_v is not None and fij_v is not None:
                 ph, fij = ph_v, fij_v
+                a_fijar = afij_v
                 matched_row_idx = ri
                 break
 
@@ -296,10 +311,11 @@ def extraer_ph_fijado(html_bytes: bytes,
 
     debug = {
         "headers": headers, "row": rows[matched_row_idx],
-        "col_ph": col_ph, "col_fij": col_fij,
-        "ph_kt": ph, "fij_kt": fij, "ph_mas_fij_kt": ph + fij,
+        "col_ph": col_ph, "col_fij": col_fij, "col_afij": col_afij,
+        "ph_kt": ph, "fij_kt": fij, "a_fijar_kt": a_fijar,
+        "ph_mas_fij_kt": ph + fij,
     }
-    return ph, fij, debug
+    return ph, fij, a_fijar, debug
 
 
 # ---------------------------------------------------------------------------
@@ -345,14 +361,17 @@ def backfill(años: list[int], cultivo: str, cosecha: str, seccion: str) -> int:
             if url.lower().endswith(".pdf"):
                 _log(f"⚠ {f_iso}: es PDF, salteo.")
                 continue
-            ph, fij, _ = extraer_ph_fijado(content, cultivo, cosecha, seccion)
+            ph, fij, a_fijar, _ = extraer_ph_fijado(content, cultivo, cosecha, seccion)
             total_kt = ph + fij
-            data.setdefault("serie", []).append({
+            entry = {
                 "fecha": f_iso,
                 "ph_fijado_acum_kt": float(round(total_kt, 2)),
                 "ph_acum_kt":  float(round(ph, 2)),
                 "fij_acum_kt": float(round(fij, 2)),
-            })
+            }
+            if a_fijar is not None:
+                entry["a_fijar_acum_kt"] = float(round(a_fijar, 2))
+            data.setdefault("serie", []).append(entry)
             fechas_existentes.add(f_iso)
             nuevos += 1
             _log(f"  + {f_iso}: PH={ph} + Fij={fij} = {total_kt} kt")
@@ -387,6 +406,19 @@ def main(argv: list[str] | None = None) -> int:
     global JSON_PATH_ACTUAL
     if args.json_out:
         JSON_PATH_ACTUAL = Path(args.json_out)
+    else:
+        # Default inteligente: derivar minagri_<slug>_<cosecha>.json
+        # del nombre del cultivo + cosecha. Evita pisar el legacy.
+        _slug_map = {
+            "Maíz": "maiz", "Maiz": "maiz",
+            "Trigo": "trigo", "Trigo Pan": "trigo",
+            "Sorgo": "sorgo",
+            "Cebada": "cebada", "Cebada Forrajera": "cebada",
+        }
+        _slug = _slug_map.get(args.cultivo)
+        if _slug:
+            _cos_clean = args.cosecha.replace("/", "_").strip()
+            JSON_PATH_ACTUAL = DATA_DIR / f"minagri_{_slug}_{_cos_clean}.json"
 
     if args.backfill:
         años = [int(x.strip()) for x in args.anios.split(",") if x.strip()]
@@ -417,20 +449,24 @@ def main(argv: list[str] | None = None) -> int:
         guardar_json(data)
         return 0
 
-    ph, fij, debug = extraer_ph_fijado(content, args.cultivo, args.cosecha, args.seccion)
+    ph, fij, a_fijar, debug = extraer_ph_fijado(content, args.cultivo, args.cosecha, args.seccion)
     total_kt = ph + fij
+    _afijar_str = f" + A_Fijar={a_fijar} kt" if a_fijar is not None else ""
     _log(f"{args.cultivo} {args.cosecha} ({args.seccion}): "
-         f"PH={ph} kt + Fijado={fij} kt = {total_kt} kt")
+         f"PH={ph} kt + Fijado={fij} kt = {total_kt} kt{_afijar_str}")
 
     f_iso = fecha.isoformat()
     serie = data.get("serie", [])
     serie = [pt for pt in serie if pt["fecha"] != f_iso]
-    serie.append({
+    entry = {
         "fecha": f_iso,
         "ph_fijado_acum_kt": float(round(total_kt, 2)),
         "ph_acum_kt":  float(round(ph, 2)),
         "fij_acum_kt": float(round(fij, 2)),
-    })
+    }
+    if a_fijar is not None:
+        entry["a_fijar_acum_kt"] = float(round(a_fijar, 2))
+    serie.append(entry)
     serie.sort(key=lambda pt: pt["fecha"])
     data["serie"] = serie
     data["_actualizado"] = f_iso

@@ -20,6 +20,40 @@ import pandas as pd
 import streamlit as st
 
 
+@st.cache_data(show_spinner=False)
+def _load_a_fijar_kt(_fs_dir_str: str, slug: str) -> float:
+    """Lee el último valor de `a_fijar_acum_kt` del JSON de MINAGRI para el
+    cultivo (cosecha actual = OC). Devuelve 0 si la key no existe o el archivo
+    no tiene punto."""
+    import json
+    # Cosecha actual por cultivo (matchea con MAGYP)
+    cos_by_slug = {
+        "maiz":   "25_26",
+        "sorgo":  "25_26",
+        "trigo":  "25_26",
+        "cebada": "25_26",
+    }
+    cos = cos_by_slug.get(slug)
+    if not cos:
+        return 0.0
+    p = Path(_fs_dir_str) / "data" / f"minagri_{slug}_{cos}.json"
+    if not p.exists():
+        return 0.0
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return 0.0
+    serie = data.get("serie", [])
+    if not serie:
+        return 0.0
+    # Sort by date desc, take latest with a_fijar_acum_kt
+    for pt in sorted(serie, key=lambda x: x.get("fecha", ""), reverse=True):
+        v = pt.get("a_fijar_acum_kt")
+        if v is not None:
+            return float(v) * 1000.0  # JSON está en kt, devolvemos tn
+    return 0.0
+
+
 def _bucket_end_date(slug: str, bucket: str) -> date | None:
     """Último día del último mes del bucket. Ej. MAM maíz → 31-May-26."""
     months = BUCKET_MONTHS_BY_SLUG.get(slug, {}).get(bucket, [])
@@ -418,6 +452,17 @@ def render_pos_fisica(app_all_dir: Path) -> None:
                 total_lin_proj += data["projected_tn"]
         total_lin_est = total_lin_real + total_lin_proj
 
+        # ── A Fijar (MAGYP): se distribuye pro-rata al peso de FS por celda ──
+        total_a_fijar = _load_a_fijar_kt(str(fs_dir), slug)  # tn
+        for key, data in cell_cache.items():
+            if total_fs > 0:
+                weight = data["fs_tn"] / total_fs
+                data["a_fijar_tn"] = total_a_fijar * weight
+            else:
+                data["a_fijar_tn"] = 0.0
+            # FS total = PH+Fij realizado + a_fijar (porción)
+            data["fs_total_tn"] = data["fs_tn"] + data["a_fijar_tn"]
+
         # ── Header del cultivo + resumen + shares ──
         st.markdown(
             f"<div style='font-weight:600;font-size:1.05rem;"
@@ -434,13 +479,16 @@ def render_pos_fisica(app_all_dir: Path) -> None:
         pos_real_label = "LONG (FS > EXP)" if total_pos_real > 0 else (
             "SHORT (EXP > FS)" if total_pos_real < 0 else "FLAT")
 
-        # Posición ESTIMADA = FS - Lineup Estimado (con proyección, forward-looking)
-        total_pos = total_fs - total_lin_est
+        # Posición TOTAL = (FS + A Fijar) − Exports Estimados
+        # Esta es la "verdadera" posición física del trade: todo lo comprometido
+        # físicamente (priced + open price) vs lo que vamos a embarcar.
+        total_fs_total = total_fs + total_a_fijar
+        total_pos = total_fs_total - total_lin_est
         pos_color = "#1d6e51" if total_pos >= 0 else "#a32d2d"
         pos_bg = ("rgba(29,158,117,0.10)"
                   if total_pos >= 0 else "rgba(226,75,74,0.10)")
-        pos_label = "LONG (FS > EXP)" if total_pos > 0 else (
-            "SHORT (EXP > FS)" if total_pos < 0 else "FLAT")
+        pos_label = "LONG ((FS+AF) > EXP)" if total_pos > 0 else (
+            "SHORT (EXP > (FS+AF))" if total_pos < 0 else "FLAT")
 
         # Pace para flat: |Pos Estimada| / días hábiles restantes hasta fin de campaña
         campaign_end = cult["campaign_end"]
@@ -463,9 +511,9 @@ def render_pos_fisica(app_all_dir: Path) -> None:
         else:
             pace_hint = "ya estás flat"
 
-        # Línea de resumen (6 cards):
-        # FS · LinReal · PosReal · LinEst · PosEst · Pace para flat
-        sum_cols = st.columns(6)
+        # Línea de resumen (7 cards):
+        # FS · ExpReal · PosReal · AFijar · ExpEst · PosTotal · Pace
+        sum_cols = st.columns(7)
         sum_cols[0].markdown(
             f"<div style='text-align:center;padding:0.4rem;"
             f"background:rgba(29,158,117,0.10);border-radius:6px;'>"
@@ -495,7 +543,17 @@ def render_pos_fisica(app_all_dir: Path) -> None:
             f"{pos_real_str}</div></div>",
             unsafe_allow_html=True,
         )
+        # 4ta card NUEVA: A FIJAR (lo vendido al export con precio abierto)
         sum_cols[3].markdown(
+            f"<div style='text-align:center;padding:0.4rem;"
+            f"background:rgba(245,124,0,0.10);border-radius:6px;'>"
+            f"<div style='font-size:0.62rem;color:#666;letter-spacing:1px;'>"
+            f"A FIJAR (MAGYP)</div>"
+            f"<div style='font-size:1.1rem;font-weight:700;color:#F57C00;'>"
+            f"{_fmt_tn(total_a_fijar)} kt</div></div>",
+            unsafe_allow_html=True,
+        )
+        sum_cols[4].markdown(
             f"<div style='text-align:center;padding:0.4rem;"
             f"background:rgba(21,101,192,0.10);border-radius:6px;'>"
             f"<div style='font-size:0.62rem;color:#666;letter-spacing:1px;'>"
@@ -506,22 +564,22 @@ def render_pos_fisica(app_all_dir: Path) -> None:
         )
         pos_kt = total_pos / 1000
         pos_str = f"{pos_kt:+,.0f}".replace(",", ".") + " kt"
-        sum_cols[4].markdown(
+        sum_cols[5].markdown(
             f"<div style='text-align:center;padding:0.4rem;"
             f"background:{pos_bg};border-radius:6px;'>"
             f"<div style='font-size:0.62rem;color:#666;letter-spacing:1px;'>"
-            f"POS. ESTIMADA · {pos_label}</div>"
+            f"POS. TOTAL · {pos_label}</div>"
             f"<div style='font-size:1.1rem;font-weight:700;color:{pos_color};'>"
             f"{pos_str}</div></div>",
             unsafe_allow_html=True,
         )
-        # 6ta card: Pace para llegar a flat
+        # 7ma card: Pace para llegar a flat
         if pace_to_flat is None:
             pace_str = "—"
         else:
             pace_kt = pace_to_flat / 1000
             pace_str = f"{pace_kt:,.0f}".replace(",", ".") + " kt/d"
-        sum_cols[5].markdown(
+        sum_cols[6].markdown(
             f"<div style='text-align:center;padding:0.4rem;"
             f"background:rgba(120,120,120,0.10);border-radius:6px;'>"
             f"<div style='font-size:0.62rem;color:#666;letter-spacing:1px;'>"
@@ -533,9 +591,12 @@ def render_pos_fisica(app_all_dir: Path) -> None:
             unsafe_allow_html=True,
         )
         st.caption(
-            f"Pos. Realizada = FS − Exports Real · Pos. Estimada = FS − Exports Estimados "
-            f"(con MARS×share). Long (+) = sobre-vendido vs exports · Short (−) = al revés. "
-            f"Pace a flat = |Pos. Estimada| / días hábiles hasta {campaign_end.strftime('%d %b %Y')}. "
+            f"Pos. Realizada = FS realizado − Exports Real (no incluye a_fijar). "
+            f"**Pos. Total = (FS + A Fijar pro-rata) − Exports Estimados** "
+            f"— posición verdadera del trade, todo lo comprometido físicamente "
+            f"vs lo que vamos a embarcar. Long (+) = sobre-vendido · Short (−) = al revés. "
+            f"Pace a flat = |Pos. Total| / días hábiles hasta {campaign_end.strftime('%d %b %Y')}. "
+            f"A Fijar (MAGYP) se distribuye proporcional al peso de FS por celda. "
             f"Share del puerto: {share_str}"
         )
 
@@ -681,7 +742,9 @@ def render_pos_fisica(app_all_dir: Path) -> None:
                     bg, _fg = _coverage_color(data["coverage_pct"])
                 asterisk = "*" if data["has_projection"] else ""
 
-                pos = data["fs_tn"] - data["pipeline_total_tn"]
+                # POS = (FS realizado + a_fijar pro-rata) − Exports estimados
+                fs_with_afij = data.get("fs_total_tn", data["fs_tn"])
+                pos = fs_with_afij - data["pipeline_total_tn"]
                 pos_c = "#1d6e51" if pos >= 0 else "#a32d2d"
                 pos_kt_cell = pos / 1000
                 pos_cell_str = f"{pos_kt_cell:+,.0f}".replace(",", ".")
