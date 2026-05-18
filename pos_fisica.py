@@ -24,10 +24,27 @@ import streamlit as st
 # ──────────────────────────────────────────────────────────────────────────────
 
 CULTIVOS = {
-    "maiz":   {"label": "🌽 Corn",        "lineups_cargo": "Maize"},
-    "trigo":  {"label": "🌾 Bread Wheat", "lineups_cargo": "Wheat"},
-    "sorgo":  {"label": "🌱 Sorghum",     "lineups_cargo": "Sorghum"},
-    "cebada": {"label": "🌿 Feed Barley", "lineups_cargo": "Barley"},
+    "maiz":   {"label": "🌽 Corn",        "lineups_cargo": "Maize",
+               "buckets": ["MAM", "JJ", "AS", "OND", "JF"]},
+    "trigo":  {"label": "🌾 Bread Wheat", "lineups_cargo": "Wheat",
+               "buckets": ["NDJ", "FMA", "MJJ", "ASO"]},
+    "sorgo":  {"label": "🌱 Sorghum",     "lineups_cargo": "Sorghum",
+               "buckets": ["MAM", "JJ", "AS", "OND", "JF"]},
+    "cebada": {"label": "🌿 Feed Barley", "lineups_cargo": "Barley",
+               "buckets": ["NDJ", "FMA", "MJJ", "ASO"]},
+}
+
+# Label "humanos" de cada bucket (para subtítulos del heatmap)
+BUCKET_LABELS = {
+    "MAM": "Mar–May 26",
+    "JJ":  "Jun–Jul 26",
+    "AS":  "Aug–Sep 26",
+    "OND": "Oct–Dec 26",
+    "JF":  "Jan–Feb 27",
+    "NDJ": "Nov 25 – Jan 26",
+    "FMA": "Feb–Apr 26",
+    "MJJ": "May–Jul 26",
+    "ASO": "Aug–Oct 26",
 }
 
 DESTINOS = {
@@ -234,251 +251,235 @@ def _compute_port_share(df_lu: pd.DataFrame, zones: list[str]) -> dict:
 # Render
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _coverage_color(coverage_pct: float | None) -> tuple[str, str]:
+    """Devuelve (bg, fg) según el % de cobertura (Pipeline/FS)."""
+    if coverage_pct is None:
+        return "rgba(0,0,0,0.03)", "#aaa"  # gris — sin data
+    if 95 <= coverage_pct <= 110:
+        return "rgba(29,158,117,0.20)", "#1d6e51"  # verde — alineado
+    if 80 <= coverage_pct <= 125:
+        return "rgba(242,201,76,0.30)", "#7a5a00"  # amarillo — gap chico
+    return "rgba(226,75,74,0.18)", "#a32d2d"        # rojo — gap grande
+
+
+def _compute_cell_data(
+    slug: str, destino_slug: str, bucket: str,
+    fs_dir: Path, lineups_dir: Path, mars_dir: Path,
+    df_lu_cargo: pd.DataFrame, exports_kt: dict, port_shares: dict,
+) -> dict:
+    """Computa todos los datos para una celda (cultivo × destino × bucket).
+
+    Returns dict con: fs_tn, pipeline_real_tn, projected_tn, pipeline_total_tn,
+    coverage_pct, has_projection, months_missing (lista).
+    """
+    df_matriz = _load_matriz_puerto(str(fs_dir), slug, destino_slug)
+    fs_total = _fs_bucket_total(df_matriz, bucket)
+
+    bucket_months = BUCKET_MONTHS_BY_SLUG[slug].get(bucket, [])
+    bucket_month_labels = [f"{_MONTH_NAMES[m]} {y}" for (y, m) in bucket_months]
+    lu_zone = DESTINOS[destino_slug]["lineups_zone"]
+
+    sailed_roads_lineup = 0
+    projected_tn = 0
+    months_missing: list[str] = []
+
+    if not df_lu_cargo.empty:
+        available = set(df_lu_cargo["MONTH"].unique())
+        months_with_data = [m for m in bucket_month_labels if m in available]
+        for (yr, mn), lbl in zip(bucket_months, bucket_month_labels):
+            if lbl not in available:
+                months_missing.append(lbl)
+        # Actuals
+        mask_real = (
+            df_lu_cargo["MONTH"].isin(months_with_data) &
+            (df_lu_cargo["ZONE"] == lu_zone)
+        )
+        sailed_roads_lineup = int(df_lu_cargo[mask_real]["TONS"].sum())
+
+        # Proyección
+        share = port_shares.get(lu_zone, 0.0)
+        for (yr, mn), lbl in zip(bucket_months, bucket_month_labels):
+            if lbl in months_with_data:
+                continue
+            mkey = _month_to_mars_key(yr, mn)
+            exp_kt = exports_kt.get(mkey)
+            if exp_kt is not None:
+                projected_tn += int(round(exp_kt * 1000 * share))
+
+    pipeline_total = sailed_roads_lineup + projected_tn
+    if fs_total > 0:
+        coverage = pipeline_total / fs_total * 100
+    else:
+        coverage = None
+
+    return {
+        "fs_tn": fs_total,
+        "pipeline_real_tn": sailed_roads_lineup,
+        "projected_tn": projected_tn,
+        "pipeline_total_tn": pipeline_total,
+        "coverage_pct": coverage,
+        "has_projection": projected_tn > 0,
+        "months_missing": months_missing,
+    }
+
+
 def render_pos_fisica(app_all_dir: Path) -> None:
     fs_dir = app_all_dir / "fs_maiz"
     lineups_dir = app_all_dir / "Lineups"
+    mars_dir = app_all_dir / "0. MARS"
 
     st.title("📦 Posición Física")
     st.caption(
-        "Farmer Selling **vendido** (suma del bucket de delivery) vs Lineups "
-        "**pipeline** (Sailed + At Roads + Lineup del mes) por cultivo, destino y mes."
+        "Comparación **FS vendido** (verde) vs **Lineup estimado** (azul, "
+        "Real + Proyectado) por cultivo, destino y bucket. Los valores con "
+        "`*` incluyen proyección (MARS Exports × share histórico del puerto). "
+        "Color de fondo indica cobertura aproximada: 🟢 ≈100% · 🟡 gap chico · "
+        "🔴 gap grande · ⬜ sin data FS."
     )
+    st.markdown("<div style='height:0.5rem;'></div>", unsafe_allow_html=True)
 
-    # ── Selectores ──────────────────────────────────────────────────────────
-    sel_cols = st.columns(3)
-    cultivo_slug = sel_cols[0].selectbox(
-        "Cultivo",
-        options=list(CULTIVOS.keys()),
-        format_func=lambda s: CULTIVOS[s]["label"],
-        key="pf_cultivo",
-    )
-    destino_slug = sel_cols[1].selectbox(
-        "Destino",
-        options=list(DESTINOS.keys()),
-        format_func=lambda d: DESTINOS[d]["label"],
-        key="pf_destino",
-    )
-    month_options = MONTHS_BY_SLUG[cultivo_slug]
-    month_labels = [m[0] for m in month_options]
-    # Default al mes actual si está en la lista
-    today = date.today()
-    today_label = today.strftime("%b %Y").replace("Jan", "Jan").replace(".", "")
+    # ── Pre-cargar Lineups + MARS + shares por cultivo ─────────────────────
+    if str(lineups_dir) not in sys.path:
+        sys.path.insert(0, str(lineups_dir))
     try:
-        default_idx = next(
-            i for i, m in enumerate(month_options) if m[1] == today.year and m[2] == today.month
-        )
-    except StopIteration:
-        default_idx = 0
-    month_sel_label = sel_cols[2].selectbox(
-        "Mes", options=month_labels, index=default_idx, key="pf_mes",
-    )
-    # Buscar el (label, year, month) del mes elegido
-    month_tuple = next(m for m in month_options if m[0] == month_sel_label)
-    month_year, month_num = month_tuple[1], month_tuple[2]
-
-    # ── Determinar bucket FS y zona Lineups ─────────────────────────────────
-    bucket = BUCKETS_BY_SLUG[cultivo_slug].get(month_num)
-    if bucket is None:
-        st.warning(
-            f"No hay bucket FS definido para {month_sel_label} en "
-            f"{CULTIVOS[cultivo_slug]['label']}."
-        )
-        return
-    lu_zone = DESTINOS[destino_slug]["lineups_zone"]
-    cargo = CULTIVOS[cultivo_slug]["lineups_cargo"]
-
-    st.divider()
-
-    # ── FS Acumulado ────────────────────────────────────────────────────────
-    df_matriz = _load_matriz_puerto(str(fs_dir), cultivo_slug, destino_slug)
-    fs_total = _fs_bucket_total(df_matriz, bucket)
-
-    # ── Lineups Pipeline (sumando TODOS los meses del bucket) ──────────────
-    sailed = roads = lineup = 0
-    projected_tn = 0  # proyección para los meses sin xls
-    bucket_months = BUCKET_MONTHS_BY_SLUG[cultivo_slug].get(bucket, [])
-    # Convertir (year, month) → labels tipo "May 2026"
-    bucket_month_labels = [
-        f"{_MONTH_NAMES[m]} {y}" for (y, m) in bucket_months
-    ]
-    months_with_data: list[str] = []
-    months_missing: list[tuple[int, int, str]] = []  # (year, month, label)
-    port_share = 0.0
-    proj_breakdown: list[tuple[str, float]] = []  # (month_label, projected_tn)
-
-    try:
-        if str(lineups_dir) not in sys.path:
-            sys.path.insert(0, str(lineups_dir))
         import _lineups_loader as lu  # type: ignore
-
-        df_lu = lu.load_for_crop(cultivo_slug, lineups_dir)
-        if not df_lu.empty:
-            available_months = set(df_lu["MONTH"].unique())
-            for (yr, mn), lbl in zip(bucket_months, bucket_month_labels):
-                if lbl in available_months:
-                    months_with_data.append(lbl)
-                else:
-                    months_missing.append((yr, mn, lbl))
-            # Actuals — meses cargados
-            mask_real = (
-                df_lu["MONTH"].isin(months_with_data) &
-                (df_lu["ZONE"] == lu_zone)
-            )
-            sub = df_lu[mask_real]
-            sailed = int(sub[sub["STATUS"] == "Sailed"]["TONS"].sum())
-            roads  = int(sub[sub["STATUS"] == "At Roads"]["TONS"].sum())
-            lineup = int(sub[sub["STATUS"] == "Lineup"]["TONS"].sum())
-
-            # ── Proyección para meses faltantes ──
-            if months_missing:
-                # Share del puerto sobre los xls cargados (todos los meses, todos los status)
-                shares = _compute_port_share(df_lu, list(DESTINOS[d]["lineups_zone"] for d in DESTINOS))
-                port_share = shares.get(lu_zone, 0.0)
-                # MARS Exports
-                mars_dir = app_all_dir / "0. MARS"
-                exports_kt = _load_mars_exports(str(mars_dir), cultivo_slug)
-                for yr, mn, lbl in months_missing:
-                    mkey = _month_to_mars_key(yr, mn)
-                    exp_kt = exports_kt.get(mkey)
-                    if exp_kt is None:
-                        proj_breakdown.append((lbl, 0))
-                        continue
-                    # exp_kt está en kt; share es fracción → resultado en tn
-                    proj_tn = int(round(exp_kt * 1000 * port_share))
-                    projected_tn += proj_tn
-                    proj_breakdown.append((lbl, proj_tn))
     except Exception as e:
-        st.warning(f"No pude cargar Lineups: {e}")
+        st.error(f"No pude cargar el módulo de Lineups: {e}")
+        return
 
-    pipeline_real = sailed + roads + lineup
-    pipeline_total = pipeline_real + projected_tn
-    gap = fs_total - pipeline_total
-    has_projection = projected_tn > 0
+    lu_df_by_slug: dict = {}
+    exports_by_slug: dict = {}
+    shares_by_slug: dict = {}
+    zones = [DESTINOS[d]["lineups_zone"] for d in DESTINOS]
+    for slug in CULTIVOS:
+        df_lu = lu.load_for_crop(slug, lineups_dir)
+        lu_df_by_slug[slug] = df_lu
+        exports_by_slug[slug] = _load_mars_exports(str(mars_dir), slug)
+        shares_by_slug[slug] = _compute_port_share(df_lu, zones)
 
-    # ── Header del bloque ───────────────────────────────────────────────────
-    cult_lbl = CULTIVOS[cultivo_slug]["label"]
-    dest_lbl = DESTINOS[destino_slug]["label"]
-    st.subheader(
-        f"{cult_lbl} · {dest_lbl} · {month_sel_label}  ·  bucket **{bucket}**"
-    )
+    # ── Iterar cultivos y armar heatmap por cada uno ───────────────────────
+    destino_slugs = list(DESTINOS.keys())
+    destino_labels = [DESTINOS[d]["label"] for d in destino_slugs]
 
-    # ── 2 columnas: FS | Lineups ───────────────────────────────────────────
-    c_fs, c_lu = st.columns(2)
+    for slug, cult in CULTIVOS.items():
+        buckets = cult["buckets"]
+        share_str = " · ".join(
+            f"{DESTINOS[d]['label']} {shares_by_slug[slug].get(DESTINOS[d]['lineups_zone'], 0)*100:.1f}%"
+            for d in destino_slugs
+        )
 
-    with c_fs:
+        # ── Calcular totales del cultivo (suma sobre destinos × buckets) ──
+        total_fs = 0
+        total_lin_real = 0
+        total_lin_proj = 0
+        cell_cache: dict[tuple[str, str], dict] = {}
+        for d_slug in destino_slugs:
+            for b in buckets:
+                data = _compute_cell_data(
+                    slug, d_slug, b, fs_dir, lineups_dir, mars_dir,
+                    lu_df_by_slug[slug], exports_by_slug[slug], shares_by_slug[slug],
+                )
+                cell_cache[(d_slug, b)] = data
+                total_fs += data["fs_tn"]
+                total_lin_real += data["pipeline_real_tn"]
+                total_lin_proj += data["projected_tn"]
+        total_lin_est = total_lin_real + total_lin_proj
+
+        # ── Header del cultivo + resumen + shares ──
         st.markdown(
-            f"""
-            <div style='text-align:center;padding:1rem 0.5rem;
-                        background:rgba(29,158,117,0.08);border-radius:10px;'>
-                <div style='font-size:0.75rem;color:#888;letter-spacing:1px;'>
-                    FARMER SELLING · acumulado bucket {bucket}
-                </div>
-                <div style='font-size:2.2rem;font-weight:700;color:#1d6e51;
-                            line-height:1.1;margin:0.4rem 0;'>
-                    {_fmt_tn(fs_total)} kt
-                </div>
-                <div style='font-size:0.7rem;color:#666;'>
-                    Suma de mensuales cerrados + mes en curso, destino
-                    <b>{dest_lbl}</b>
-                </div>
-            </div>
-            """,
+            f"<div style='font-weight:600;font-size:1.05rem;"
+            f"margin:0.6rem 0 0.2rem 0;'>"
+            f"{cult['label']}</div>",
             unsafe_allow_html=True,
         )
 
-    # Texto chiquito describiendo qué meses son reales vs proyectados
-    real_str = ", ".join(m.split()[0][:3] for m in months_with_data) if months_with_data else "ninguno"
-    miss_str = ", ".join(m.split()[0][:3] for _, _, m in months_missing) if months_missing else None
-    lu_subtitle_parts = [f"Real: {real_str}"]
-    if miss_str:
-        lu_subtitle_parts.append(
-            f"Proyectado: {miss_str} (MARS×{port_share*100:.1f}% share)"
-        )
-    lu_subtitle = " · ".join(lu_subtitle_parts) + f"<br/>{dest_lbl}"
-
-    asterisk = " *" if has_projection else ""
-
-    with c_lu:
-        st.markdown(
-            f"""
-            <div style='text-align:center;padding:1rem 0.5rem;
-                        background:rgba(21,101,192,0.08);border-radius:10px;'>
-                <div style='font-size:0.75rem;color:#888;letter-spacing:1px;'>
-                    LINEUPS · pipeline bucket {bucket}{asterisk}
-                </div>
-                <div style='font-size:2.2rem;font-weight:700;color:#1565C0;
-                            line-height:1.1;margin:0.4rem 0;'>
-                    {_fmt_tn(pipeline_total)} kt{asterisk}
-                </div>
-                <div style='font-size:0.7rem;color:#666;line-height:1.3;'>
-                    {lu_subtitle}
-                </div>
-            </div>
-            """,
+        # Línea de resumen del cultivo (3 totales)
+        sum_l, sum_m, sum_r = st.columns(3)
+        sum_l.markdown(
+            f"<div style='text-align:center;padding:0.4rem;"
+            f"background:rgba(21,101,192,0.10);border-radius:6px;'>"
+            f"<div style='font-size:0.62rem;color:#666;letter-spacing:1px;'>"
+            f"LINEUP ESTIMADO TOTAL *</div>"
+            f"<div style='font-size:1.1rem;font-weight:700;color:#1565C0;'>"
+            f"{_fmt_tn(total_lin_est)} kt</div></div>",
             unsafe_allow_html=True,
         )
+        sum_m.markdown(
+            f"<div style='text-align:center;padding:0.4rem;"
+            f"background:rgba(46,125,50,0.10);border-radius:6px;'>"
+            f"<div style='font-size:0.62rem;color:#666;letter-spacing:1px;'>"
+            f"LINEUP REALIZADO</div>"
+            f"<div style='font-size:1.1rem;font-weight:700;color:#2E7D32;'>"
+            f"{_fmt_tn(total_lin_real)} kt</div></div>",
+            unsafe_allow_html=True,
+        )
+        sum_r.markdown(
+            f"<div style='text-align:center;padding:0.4rem;"
+            f"background:rgba(29,158,117,0.10);border-radius:6px;'>"
+            f"<div style='font-size:0.62rem;color:#666;letter-spacing:1px;'>"
+            f"FS REALIZADO HASTA AHORA</div>"
+            f"<div style='font-size:1.1rem;font-weight:700;color:#1d6e51;'>"
+            f"{_fmt_tn(total_fs)} kt</div></div>",
+            unsafe_allow_html=True,
+        )
+        st.caption(f"Share histórico del puerto (sobre xls cargados): {share_str}")
 
-    # ── Breakdown Lineups (Sailed / Roads / Lineup / Proyectado) ───────────
-    st.markdown("<div style='height:0.8rem;'></div>", unsafe_allow_html=True)
-    cols_b = st.columns(4 if has_projection else 3)
-    cols_b[0].metric("🟢 Sailed (loaded)", f"{_fmt_tn(sailed)} kt")
-    cols_b[1].metric("🟠 At Roads",        f"{_fmt_tn(roads)} kt")
-    cols_b[2].metric("🔵 Lineup",          f"{_fmt_tn(lineup)} kt")
-    if has_projection:
-        cols_b[3].metric("🟣 Proyectado*",  f"{_fmt_tn(projected_tn)} kt",
-                         help="MARS Exports × share del puerto (calculado "
-                              "sobre los xls cargados).")
+        # ── Construir tabla HTML con totales en kt ──
+        html = [
+            "<table style='width:100%;border-collapse:collapse;"
+            "font-size:0.78rem;margin-bottom:0.5rem;'>"
+        ]
+        html.append(
+            "<thead><tr>"
+            "<th style='text-align:left;padding:6px 8px;color:#666;"
+            "border-bottom:1px solid #ddd;'>Destino \\ Bucket</th>"
+        )
+        for b in buckets:
+            html.append(
+                f"<th style='text-align:center;padding:6px 8px;color:#444;"
+                f"border-bottom:1px solid #ddd;'>"
+                f"<div style='font-weight:600;'>{b}</div>"
+                f"<div style='font-size:0.7rem;font-weight:400;color:#999;'>"
+                f"{BUCKET_LABELS.get(b, '')}</div>"
+                f"</th>"
+            )
+        html.append("</tr></thead><tbody>")
+
+        # Una fila por destino
+        for d_slug in destino_slugs:
+            d_lbl = DESTINOS[d_slug]["label"]
+            html.append(
+                f"<tr><td style='padding:6px 8px;font-weight:600;color:#333;"
+                f"border-bottom:1px solid #eee;'>{d_lbl}</td>"
+            )
+            for b in buckets:
+                data = cell_cache[(d_slug, b)]
+                bg, fg = _coverage_color(data["coverage_pct"])
+                asterisk = "*" if data["has_projection"] else ""
+
+                # Cell muestra los 2 totales en kt: FS y Lineup (real+proy)
+                html.append(
+                    f"<td style='padding:8px 6px;background:{bg};"
+                    f"border-bottom:1px solid #eee;text-align:center;'>"
+                    f"<div style='font-size:0.6rem;color:#888;letter-spacing:0.5px;'>FS</div>"
+                    f"<div style='font-weight:700;font-size:0.95rem;color:#1d6e51;'>"
+                    f"{_fmt_tn(data['fs_tn'])} <span style='font-size:0.65rem;color:#999;font-weight:500;'>kt</span></div>"
+                    f"<div style='height:3px;'></div>"
+                    f"<div style='font-size:0.6rem;color:#888;letter-spacing:0.5px;'>LINEUP{asterisk}</div>"
+                    f"<div style='font-weight:700;font-size:0.95rem;color:#1565C0;'>"
+                    f"{_fmt_tn(data['pipeline_total_tn'])} <span style='font-size:0.65rem;color:#999;font-weight:500;'>kt</span></div>"
+                    f"</td>"
+                )
+            html.append("</tr>")
+        html.append("</tbody></table>")
+
+        st.markdown("".join(html), unsafe_allow_html=True)
 
     st.divider()
-
-    # ── Gap ─────────────────────────────────────────────────────────────────
-    gap_color = "#1d6e51" if gap > 0 else ("#a32d2d" if gap < 0 else "#888")
-    gap_lbl = (
-        f"FS está {abs(gap)/1000:,.0f} kt"
-        if gap != 0
-        else "—"
-    ).replace(",", ".")
-    if gap > 0:
-        gap_explain = f"por **encima** del pipeline (falta aparecer en lineup)"
-    elif gap < 0:
-        gap_explain = f"por **debajo** del pipeline (más pipeline que vendido)"
-    else:
-        gap_explain = "alineado con el pipeline"
-
-    st.markdown(
-        f"""
-        <div style='text-align:center;padding:1rem;border:1px dashed {gap_color};
-                    border-radius:10px;'>
-            <div style='font-size:0.8rem;color:#888;letter-spacing:1px;'>
-                GAP · FS − Pipeline
-            </div>
-            <div style='font-size:1.8rem;font-weight:700;color:{gap_color};
-                        line-height:1.2;margin:0.3rem 0;'>
-                {gap:+,.0f} tn
-            </div>
-            <div style='font-size:0.85rem;color:#444;'>
-                {gap_lbl} {gap_explain}
-            </div>
-        </div>
-        """.replace(",", "."),
-        unsafe_allow_html=True,
+    st.caption(
+        "**Cobertura = Pipeline / FS × 100**. Pipeline incluye Lineups reales "
+        "(Mar/Apr/May 26 hoy) + proyección de meses faltantes (MARS Exports × "
+        "share del puerto). Buckets de delivery: maíz/sorgo MAM=Mar-May, "
+        "JJ=Jun-Jul, AS=Aug-Sep, OND=Oct-Dec, JF=Jan-Feb. "
+        "Trigo/cebada NDJ=Nov-Jan, FMA=Feb-Apr, MJJ=May-Jul, ASO=Aug-Oct."
     )
-
-    # ── Caption con detalle del cálculo ────────────────────────────────────
-    bucket_months_full = ", ".join(bucket_month_labels)
-    caption_parts = [
-        f"FS leído de `matriz_{cultivo_slug}_{destino_slug}.csv` (suma del "
-        f"bucket **{bucket}**)",
-        f"Lineups: CARGO=**{cargo}** + ZONE=**{lu_zone}** + MONTH ∈ "
-        f"{{{bucket_months_full}}}",
-    ]
-    if has_projection:
-        proj_detail = ", ".join(
-            f"{lbl.split()[0][:3]} {_fmt_tn(tn)} kt" for lbl, tn in proj_breakdown
-        )
-        caption_parts.append(
-            f"**Proyección\\***: share del puerto **{port_share*100:.1f}%** "
-            f"(total {lu_zone}/total cargo en xls) × MARS Exports. "
-            f"Breakdown proy: {proj_detail}"
-        )
-    st.caption(" · ".join(caption_parts))
