@@ -51,6 +51,9 @@ DESTINOS = {
     "uprivers": {"label": "Up River",     "lineups_zone": "Up River"},
     "bahia":    {"label": "Bahía Blanca", "lineups_zone": "Bahía Blanca"},
     "necochea": {"label": "Necochea",     "lineups_zone": "Necochea"},
+    # Interior tiene FS pero NO aparece en Lineups (consumo doméstico, no
+    # exporta). Lineup = 0 siempre; Posición = FS.
+    "interior": {"label": "Interior",     "lineups_zone": None},
 }
 
 # Meses calendario por cultivo (current crop year)
@@ -283,7 +286,10 @@ def _compute_cell_data(
     projected_tn = 0
     months_missing: list[str] = []
 
-    if not df_lu_cargo.empty:
+    # Interior NO aparece en Lineups → todo lo de Lineup queda en 0
+    is_export = lu_zone is not None
+
+    if is_export and not df_lu_cargo.empty:
         available = set(df_lu_cargo["MONTH"].unique())
         months_with_data = [m for m in bucket_month_labels if m in available]
         for (yr, mn), lbl in zip(bucket_months, bucket_month_labels):
@@ -307,7 +313,10 @@ def _compute_cell_data(
                 projected_tn += int(round(exp_kt * 1000 * share))
 
     pipeline_total = sailed_roads_lineup + projected_tn
-    if fs_total > 0:
+    if not is_export:
+        # Interior: no aplica cobertura, la marcamos como neutral
+        coverage = None
+    elif fs_total > 0:
         coverage = pipeline_total / fs_total * 100
     else:
         coverage = None
@@ -320,6 +329,7 @@ def _compute_cell_data(
         "coverage_pct": coverage,
         "has_projection": projected_tn > 0,
         "months_missing": months_missing,
+        "is_export": is_export,
     }
 
 
@@ -447,7 +457,67 @@ def render_pos_fisica(app_all_dir: Path) -> None:
             f"Share del puerto: {share_str}"
         )
 
-        # ── Construir tabla HTML con totales en kt ──
+        # ── Construir tabla HTML con totales en kt + subtotales ──
+        # Precomputar subtotales por destino (filas) y por bucket (columnas)
+        row_totals = {}   # d_slug → {fs, real, proj}
+        col_totals = {}   # bucket → {fs, real, proj}
+        grand = {"fs": 0, "real": 0, "proj": 0}
+        for d_slug in destino_slugs:
+            row_totals[d_slug] = {"fs": 0, "real": 0, "proj": 0,
+                                   "any_export": False}
+            for b in buckets:
+                data = cell_cache[(d_slug, b)]
+                row_totals[d_slug]["fs"]   += data["fs_tn"]
+                row_totals[d_slug]["real"] += data["pipeline_real_tn"]
+                row_totals[d_slug]["proj"] += data["projected_tn"]
+                row_totals[d_slug]["any_export"] |= data["is_export"]
+                col_totals.setdefault(b, {"fs": 0, "real": 0, "proj": 0})
+                col_totals[b]["fs"]   += data["fs_tn"]
+                col_totals[b]["real"] += data["pipeline_real_tn"]
+                col_totals[b]["proj"] += data["projected_tn"]
+        for b in buckets:
+            grand["fs"]   += col_totals[b]["fs"]
+            grand["real"] += col_totals[b]["real"]
+            grand["proj"] += col_totals[b]["proj"]
+
+        def _subtotal_cell_html(fs_tn, lin_real_tn, proj_tn, is_export_total: bool):
+            """Celda de subtotal — más densa pero con la misma estructura."""
+            lin_total = lin_real_tn + proj_tn
+            ast = "*" if proj_tn > 0 else ""
+            pos = fs_tn - lin_total
+            pos_c = "#1d6e51" if pos >= 0 else "#a32d2d"
+            if not is_export_total:
+                # Solo Interior: Lineup no aplica
+                lin_html = (
+                    f"<div style='font-weight:700;font-size:0.88rem;color:#bbb;'>—</div>"
+                )
+                pos_html = (
+                    f"<div style='font-weight:700;font-size:0.88rem;color:#1d6e51;'>"
+                    f"{_fmt_tn(fs_tn)} <span style='font-size:0.6rem;color:#999;font-weight:500;'>kt</span></div>"
+                )
+            else:
+                lin_html = (
+                    f"<div style='font-weight:700;font-size:0.88rem;color:#1565C0;'>"
+                    f"{_fmt_tn(lin_total)} <span style='font-size:0.6rem;color:#999;font-weight:500;'>kt</span></div>"
+                )
+                pos_kt_total = pos / 1000
+                pos_str = f"{pos_kt_total:+,.0f}".replace(",", ".")
+                pos_html = (
+                    f"<div style='font-weight:700;font-size:0.88rem;color:{pos_c};'>"
+                    f"{pos_str} <span style='font-size:0.6rem;color:#999;font-weight:500;'>kt</span></div>"
+                )
+            return (
+                f"<div style='font-size:0.58rem;color:#888;letter-spacing:0.5px;'>FS</div>"
+                f"<div style='font-weight:700;font-size:0.88rem;color:#1d6e51;'>"
+                f"{_fmt_tn(fs_tn)} <span style='font-size:0.6rem;color:#999;font-weight:500;'>kt</span></div>"
+                f"<div style='height:2px;'></div>"
+                f"<div style='font-size:0.58rem;color:#888;letter-spacing:0.5px;'>LINEUP{ast}</div>"
+                f"{lin_html}"
+                f"<div style='height:2px;'></div>"
+                f"<div style='font-size:0.58rem;color:#888;letter-spacing:0.5px;'>POS</div>"
+                f"{pos_html}"
+            )
+
         html = [
             "<table style='width:100%;border-collapse:collapse;"
             "font-size:0.78rem;margin-bottom:0.5rem;'>"
@@ -466,6 +536,14 @@ def render_pos_fisica(app_all_dir: Path) -> None:
                 f"{BUCKET_LABELS.get(b, '')}</div>"
                 f"</th>"
             )
+        # Header del subtotal por fila (columna Total a la derecha)
+        html.append(
+            "<th style='text-align:center;padding:6px 8px;color:#222;"
+            "border-bottom:1px solid #ddd;background:rgba(0,0,0,0.04);'>"
+            "<div style='font-weight:700;'>Total</div>"
+            "<div style='font-size:0.7rem;font-weight:400;color:#999;'>"
+            "todos los buckets</div></th>"
+        )
         html.append("</tr></thead><tbody>")
 
         # Una fila por destino
@@ -477,7 +555,12 @@ def render_pos_fisica(app_all_dir: Path) -> None:
             )
             for b in buckets:
                 data = cell_cache[(d_slug, b)]
-                bg, fg = _coverage_color(data["coverage_pct"])
+                is_interior = not data["is_export"]
+                if is_interior:
+                    # Fondo gris neutro: no aplica el concepto de cobertura
+                    bg = "rgba(0,0,0,0.025)"
+                else:
+                    bg, _fg = _coverage_color(data["coverage_pct"])
                 asterisk = "*" if data["has_projection"] else ""
 
                 pos = data["fs_tn"] - data["pipeline_total_tn"]
@@ -485,7 +568,26 @@ def render_pos_fisica(app_all_dir: Path) -> None:
                 pos_kt_cell = pos / 1000
                 pos_cell_str = f"{pos_kt_cell:+,.0f}".replace(",", ".")
 
-                # Cell muestra los 3 totales en kt: FS, Lineup (real+proy), Pos
+                # Lineup line: para Interior mostramos "—" porque no aplica
+                if is_interior:
+                    lineup_html = (
+                        f"<div style='font-weight:700;font-size:0.88rem;color:#bbb;'>"
+                        f"— <span style='font-size:0.55rem;color:#999;'>no aplica</span></div>"
+                    )
+                    pos_html = (
+                        f"<div style='font-weight:700;font-size:0.88rem;color:#1d6e51;'>"
+                        f"{_fmt_tn(data['fs_tn'])} <span style='font-size:0.6rem;color:#999;font-weight:500;'>kt</span></div>"
+                    )
+                else:
+                    lineup_html = (
+                        f"<div style='font-weight:700;font-size:0.88rem;color:#1565C0;'>"
+                        f"{_fmt_tn(data['pipeline_total_tn'])} <span style='font-size:0.6rem;color:#999;font-weight:500;'>kt</span></div>"
+                    )
+                    pos_html = (
+                        f"<div style='font-weight:700;font-size:0.88rem;color:{pos_c};'>"
+                        f"{pos_cell_str} <span style='font-size:0.6rem;color:#999;font-weight:500;'>kt</span></div>"
+                    )
+
                 html.append(
                     f"<td style='padding:8px 6px;background:{bg};"
                     f"border-bottom:1px solid #eee;text-align:center;'>"
@@ -494,15 +596,45 @@ def render_pos_fisica(app_all_dir: Path) -> None:
                     f"{_fmt_tn(data['fs_tn'])} <span style='font-size:0.6rem;color:#999;font-weight:500;'>kt</span></div>"
                     f"<div style='height:2px;'></div>"
                     f"<div style='font-size:0.58rem;color:#888;letter-spacing:0.5px;'>LINEUP{asterisk}</div>"
-                    f"<div style='font-weight:700;font-size:0.88rem;color:#1565C0;'>"
-                    f"{_fmt_tn(data['pipeline_total_tn'])} <span style='font-size:0.6rem;color:#999;font-weight:500;'>kt</span></div>"
+                    f"{lineup_html}"
                     f"<div style='height:2px;'></div>"
                     f"<div style='font-size:0.58rem;color:#888;letter-spacing:0.5px;'>POS</div>"
-                    f"<div style='font-weight:700;font-size:0.88rem;color:{pos_c};'>"
-                    f"{pos_cell_str} <span style='font-size:0.6rem;color:#999;font-weight:500;'>kt</span></div>"
+                    f"{pos_html}"
                     f"</td>"
                 )
+            # Subtotal de fila (todos los buckets para este destino)
+            rt = row_totals[d_slug]
+            html.append(
+                f"<td style='padding:8px 6px;background:rgba(0,0,0,0.04);"
+                f"border-bottom:1px solid #eee;text-align:center;"
+                f"border-left:2px solid rgba(0,0,0,0.08);'>"
+                f"{_subtotal_cell_html(rt['fs'], rt['real'], rt['proj'], rt['any_export'])}"
+                f"</td>"
+            )
             html.append("</tr>")
+
+        # Fila de subtotales por bucket
+        html.append(
+            "<tr style='background:rgba(0,0,0,0.04);"
+            "border-top:2px solid rgba(0,0,0,0.08);'>"
+            "<td style='padding:6px 8px;font-weight:700;color:#222;'>Total</td>"
+        )
+        for b in buckets:
+            ct = col_totals[b]
+            html.append(
+                f"<td style='padding:8px 6px;text-align:center;'>"
+                f"{_subtotal_cell_html(ct['fs'], ct['real'], ct['proj'], True)}"
+                f"</td>"
+            )
+        # Grand total (esquina abajo-derecha)
+        html.append(
+            f"<td style='padding:8px 6px;text-align:center;"
+            f"background:rgba(0,0,0,0.07);"
+            f"border-left:2px solid rgba(0,0,0,0.08);'>"
+            f"{_subtotal_cell_html(grand['fs'], grand['real'], grand['proj'], True)}"
+            f"</td>"
+        )
+        html.append("</tr>")
         html.append("</tbody></table>")
 
         st.markdown("".join(html), unsafe_allow_html=True)
