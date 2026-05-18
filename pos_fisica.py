@@ -403,7 +403,15 @@ def render_pos_fisica(app_all_dir: Path) -> None:
             unsafe_allow_html=True,
         )
 
-        # Posición = FS - Lineup Estimado (forward-looking, considera proyección)
+        # Posición REALIZADA = FS - Lineup Real (sin proyección, dónde estamos hoy)
+        total_pos_real = total_fs - total_lin_real
+        pos_real_color = "#1d6e51" if total_pos_real >= 0 else "#a32d2d"
+        pos_real_bg = ("rgba(29,158,117,0.10)"
+                       if total_pos_real >= 0 else "rgba(226,75,74,0.10)")
+        pos_real_label = "LONG (FS > LIN)" if total_pos_real > 0 else (
+            "SHORT (LIN > FS)" if total_pos_real < 0 else "FLAT")
+
+        # Posición ESTIMADA = FS - Lineup Estimado (con proyección, forward-looking)
         total_pos = total_fs - total_lin_est
         pos_color = "#1d6e51" if total_pos >= 0 else "#a32d2d"
         pos_bg = ("rgba(29,158,117,0.10)"
@@ -411,8 +419,9 @@ def render_pos_fisica(app_all_dir: Path) -> None:
         pos_label = "LONG (FS > LIN)" if total_pos > 0 else (
             "SHORT (LIN > FS)" if total_pos < 0 else "FLAT")
 
-        # Línea de resumen del cultivo (4 cards: FS · LinReal · LinEst · Pos)
-        sum_cols = st.columns(4)
+        # Línea de resumen (5 cards):
+        # FS · LinReal · PosReal · LinEst · PosEst
+        sum_cols = st.columns(5)
         sum_cols[0].markdown(
             f"<div style='text-align:center;padding:0.4rem;"
             f"background:rgba(29,158,117,0.10);border-radius:6px;'>"
@@ -431,7 +440,18 @@ def render_pos_fisica(app_all_dir: Path) -> None:
             f"{_fmt_tn(total_lin_real)} kt</div></div>",
             unsafe_allow_html=True,
         )
+        pos_real_kt = total_pos_real / 1000
+        pos_real_str = f"{pos_real_kt:+,.0f}".replace(",", ".") + " kt"
         sum_cols[2].markdown(
+            f"<div style='text-align:center;padding:0.4rem;"
+            f"background:{pos_real_bg};border-radius:6px;'>"
+            f"<div style='font-size:0.62rem;color:#666;letter-spacing:1px;'>"
+            f"POS. REALIZADA · {pos_real_label}</div>"
+            f"<div style='font-size:1.1rem;font-weight:700;color:{pos_real_color};'>"
+            f"{pos_real_str}</div></div>",
+            unsafe_allow_html=True,
+        )
+        sum_cols[3].markdown(
             f"<div style='text-align:center;padding:0.4rem;"
             f"background:rgba(21,101,192,0.10);border-radius:6px;'>"
             f"<div style='font-size:0.62rem;color:#666;letter-spacing:1px;'>"
@@ -442,18 +462,19 @@ def render_pos_fisica(app_all_dir: Path) -> None:
         )
         pos_kt = total_pos / 1000
         pos_str = f"{pos_kt:+,.0f}".replace(",", ".") + " kt"
-        sum_cols[3].markdown(
+        sum_cols[4].markdown(
             f"<div style='text-align:center;padding:0.4rem;"
             f"background:{pos_bg};border-radius:6px;'>"
             f"<div style='font-size:0.62rem;color:#666;letter-spacing:1px;'>"
-            f"POSICIÓN FÍSICA · {pos_label}</div>"
+            f"POS. ESTIMADA · {pos_label}</div>"
             f"<div style='font-size:1.1rem;font-weight:700;color:{pos_color};'>"
             f"{pos_str}</div></div>",
             unsafe_allow_html=True,
         )
         st.caption(
-            f"Posición = FS realizado − Lineup estimado. Long (+) = más comprado "
-            f"que pipeline. Short (−) = más pipeline que comprado. "
+            f"Pos. Realizada = FS − Lineup Real (sin proyección) · "
+            f"Pos. Estimada = FS − Lineup Estimado (con MARS×share). "
+            f"Long (+) = más comprado que embarcado · Short (−) = al revés. "
             f"Share del puerto: {share_str}"
         )
 

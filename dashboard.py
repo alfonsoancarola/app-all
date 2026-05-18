@@ -777,8 +777,6 @@ def render_dashboard(app_all_dir: Path) -> None:
                 )
                 sub_r.markdown(repl_html, unsafe_allow_html=True)
 
-    st.divider()
-
     # ════════════════════════════════════════════════════════════════════════
     # 1. FS + LDC consolidado por cultivo: ayer, semana, pace, MAT
     # ════════════════════════════════════════════════════════════════════════
