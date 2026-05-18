@@ -41,6 +41,33 @@ CARGO_NORMALIZE = {
     "Kidney Beans (in bags)": "Beans",
 }
 
+# Mapeo Puerto → Zona (replicado de lineups_app.py para uso en agregados)
+PORT_TO_ZONE = {
+    "San Lorenzo":        "Up River",
+    "Rosario":            "Up River",
+    "Ramallo":            "Up River",
+    "San Pedro":          "Up River",
+    "Lima":               "Up River",
+    "Parana Guazu":       "Up River",
+    "Villa Constitucion": "Up River",
+    "Villa Constitución": "Up River",
+    "Timbues":            "Up River",
+    "Timbúes":            "Up River",
+    "Puerto General San Martin": "Up River",
+    "Bahia Blanca":  "Bahía Blanca",
+    "Bahía Blanca":  "Bahía Blanca",
+    "Necochea":      "Necochea",
+    "Quequen":       "Necochea",
+    "Quequén":       "Necochea",
+}
+
+
+def _port_to_zone(p: str) -> str:
+    if not isinstance(p, str):
+        return "Otros"
+    p_clean = p.strip()
+    return PORT_TO_ZONE.get(p_clean, "Otros")
+
 # Mapping desde el slug de fs_maiz al CARGO normalizado de Lineups
 FS_SLUG_TO_CARGO = {
     "maiz":   "Maize",
@@ -110,7 +137,15 @@ def _parse_one(path: Path) -> pd.DataFrame:
         if low.startswith("adm"):          return "ADM Agro"
         return s
     df["SHIPPER"] = df["SHIPPER"].map(_norm_shipper) if "SHIPPER" in df.columns else ""
-    return df[["CARGO", "TONS", "ETA", "STATUS", "SHIPPER"]]
+    # Normalizar puerto + agregar zona
+    if "PORT" in df.columns:
+        df["PORT"] = (df["PORT"].astype(str)
+                       .str.replace(r"\s*-\s*Argentina\s*$", "", regex=True)
+                       .str.strip())
+    else:
+        df["PORT"] = ""
+    df["ZONE"] = df["PORT"].map(_port_to_zone)
+    return df[["CARGO", "TONS", "ETA", "STATUS", "SHIPPER", "PORT", "ZONE"]]
 
 
 def load_all(data_dir: Path | None = None) -> pd.DataFrame:

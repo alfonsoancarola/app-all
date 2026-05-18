@@ -66,6 +66,13 @@ APPS = {
         "dir": LINEUPS_DIR,
         "script": LINEUPS_SCRIPT,
     },
+    "pos_fisica": {
+        "label": "Pos. Física",
+        "emoji": "📦",
+        "desc": "FS vendido vs Lineups pipeline por cultivo, destino y mes",
+        "dir": None,
+        "script": None,
+    },
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -174,9 +181,9 @@ if st.session_state.current_app is None:
     st.caption("Elegí qué sección querés abrir.")
     st.write("")
 
-    # Tres tarjetas: Dashboard / Farmer Selling / Lineups
-    cols = st.columns(3, gap="large")
-    for col, key in zip(cols, ["dashboard", "fs_maiz", "lineups"]):
+    # Cuatro tarjetas: Dashboard / Farmer Selling / Lineups / Pos. Física
+    cols = st.columns(4, gap="medium")
+    for col, key in zip(cols, ["dashboard", "fs_maiz", "lineups", "pos_fisica"]):
         with col:
             cfg = APPS[key]
             if st.button(
@@ -204,6 +211,9 @@ else:
         # Dashboard nativo del wrapper (no embebe ningún script externo)
         import dashboard as _dash_mod  # noqa: WPS433
         _dash_mod.render_dashboard(APP_ALL_DIR)
+    elif st.session_state.current_app == "pos_fisica":
+        import pos_fisica as _pf_mod  # noqa: WPS433
+        _pf_mod.render_pos_fisica(APP_ALL_DIR)
     else:
         # Ejecutamos la app embebida (fs_maiz o lineups)
         run_embedded_app(st.session_state.current_app)

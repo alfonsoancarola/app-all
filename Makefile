@@ -85,10 +85,24 @@ recap:
 	@if [ -z "$(CONSO)" ]; then \
 		echo "❌ Falta CONSO=<archivo>. Ejemplo:"; \
 		echo "    make recap CONSO=RecapConsolidadoFOB_15-05-2026.xls"; \
+		echo ""; \
+		echo "Consolidados disponibles en $(RECAP_DIR):"; \
+		ls -1t "$(RECAP_DIR)"/RecapConsolidadoFOB*.xls 2>/dev/null | head -5 | sed 's|.*/|  - |' || echo "  (ninguno)"; \
 		exit 2; \
 	fi
 	@if [ ! -d "$(RECAP_DIR)" ]; then \
 		echo "❌ No existe $(RECAP_DIR). Si la moviste, editá RECAP_DIR en este Makefile."; \
+		exit 1; \
+	fi
+	@if [ ! -f "$(RECAP_DIR)/$(CONSO)" ]; then \
+		echo "❌ No encontré $(CONSO) en $(RECAP_DIR)."; \
+		echo ""; \
+		echo "Consolidados disponibles:"; \
+		ls -1t "$(RECAP_DIR)"/RecapConsolidadoFOB*.xls 2>/dev/null | head -5 | sed 's|.*/|  - |' || echo "  (ninguno)"; \
+		echo ""; \
+		echo "Tip: exportá el RecapConsolidadoFOB nuevo del sistema y pegalo en"; \
+		echo "  $(RECAP_DIR)"; \
+		echo "antes de correr este comando."; \
 		exit 1; \
 	fi
 	@echo "→ Procesando $(CONSO)..."
