@@ -524,7 +524,7 @@ def render_pos_fisica(app_all_dir: Path) -> None:
         ]
         html.append(
             "<thead><tr>"
-            "<th style='text-align:left;padding:6px 8px;color:#666;"
+            "<th style='text-align:center;padding:6px 8px;color:#666;"
             "border-bottom:1px solid #ddd;'>Destino \\ Bucket</th>"
         )
         for b in buckets:
@@ -551,7 +551,7 @@ def render_pos_fisica(app_all_dir: Path) -> None:
             d_lbl = DESTINOS[d_slug]["label"]
             html.append(
                 f"<tr><td style='padding:6px 8px;font-weight:600;color:#333;"
-                f"border-bottom:1px solid #eee;'>{d_lbl}</td>"
+                f"text-align:center;border-bottom:1px solid #eee;'>{d_lbl}</td>"
             )
             for b in buckets:
                 data = cell_cache[(d_slug, b)]
@@ -617,7 +617,8 @@ def render_pos_fisica(app_all_dir: Path) -> None:
         html.append(
             "<tr style='background:rgba(0,0,0,0.04);"
             "border-top:2px solid rgba(0,0,0,0.08);'>"
-            "<td style='padding:6px 8px;font-weight:700;color:#222;'>Total</td>"
+            "<td style='padding:6px 8px;font-weight:700;color:#222;"
+            "text-align:center;'>Total</td>"
         )
         for b in buckets:
             ct = col_totals[b]
