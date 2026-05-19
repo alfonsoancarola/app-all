@@ -260,19 +260,22 @@ def extraer_ph_fijado(html_bytes: bytes,
         raise RuntimeError("Tabla vacía.")
 
     headers = rows[0]
+
     col_ph = _indice_columna(headers, ["PRECIO", "HECHO"])
-    col_fij = _indice_columna(headers, ["FIJADO"])
-    # En esta página: "Total Fijado" tiene la columna correcta;
-    # "Saldo a Fijar" también contiene FIJAR pero no FIJADO.
-    if col_fij is None:
-        col_fij = _indice_columna(headers, ["TOTAL", "FIJAD"])
-    if col_ph is None or col_fij is None:
-        raise RuntimeError(f"No identifiqué columnas PH/Fijado. Headers={headers}")
-    # Columna "Saldo a Fijar" — vendido al exportador pero todavía con
-    # precio abierto. Es lo que falta para conocer la posición física real.
+    col_fij = _indice_columna(headers, ["TOTAL", "FIJADO"])
+    # "Saldo a Fijar" = lo abierto por fijar (verdadera posición física
+    # con precio sin cerrar). NO es DJVE Acumulado.
     col_afij = _indice_columna(headers, ["SALDO", "FIJAR"])
     if col_afij is None:
         col_afij = _indice_columna(headers, ["A FIJAR"])
+    if col_ph is None or col_fij is None:
+        raise RuntimeError(f"No identifiqué columnas PH/Fijado. Headers={headers}")
+
+    # MAGYP usa rowspan en la celda de SECCIÓN: solo la PRIMERA fila de
+    # cada sección la trae explícita; las cosechas siguientes vienen con
+    # 1 columna menos. Calculamos el offset POR FILA al matchear.
+    def _offset_for_row(row: list[str]) -> int:
+        return len(headers) - len(row) if len(row) < len(headers) else 0
 
     seccion_target = _strip_accents(seccion)
     cosecha_target = cosecha.strip().replace("/", "/")
@@ -283,19 +286,37 @@ def extraer_ph_fijado(html_bytes: bytes,
     seccion_actual = ""
     for ri in range(1, len(rows)):
         row = rows[ri]
-        # En tablas con rowspan, la primera celda puede ser la sección;
-        # algunas filas no la traen y heredan la anterior.
+        if not row:
+            continue
+        # Skip filas-paréntesis (variaciones semanales como "(348,1)") —
+        # todas las celdas empiezan con "(".
+        if row[0].startswith("("):
+            continue
         joined = " | ".join(row)
-        if seccion_target in _strip_accents(joined):
+        joined_clean = _strip_accents(joined)
+        # Tracking de sección. Por MAGYP convention, las secciones que NO
+        # nos interesan son "Compras de la Industria" y "Total"; queremos
+        # solamente seccion_target ("Compras Sector Exportador").
+        if "COMPRAS DE LA INDUSTRIA" in joined_clean:
+            seccion_actual = "industria"
+        elif joined_clean.startswith("TOTAL") or " TOTAL " in joined_clean:
+            seccion_actual = "total"
+        elif seccion_target in joined_clean:
             seccion_actual = seccion
-        # Buscamos celda con cosecha
         if seccion_actual != seccion:
             continue
-        if cosecha_target in joined and not _strip_accents(joined).startswith("TOTAL"):
-            ph_v = _to_float_ar(row[col_ph]) if col_ph < len(row) else None
-            fij_v = _to_float_ar(row[col_fij]) if col_fij < len(row) else None
-            afij_v = (_to_float_ar(row[col_afij])
-                      if (col_afij is not None and col_afij < len(row))
+        if cosecha_target in joined and not joined_clean.startswith("TOTAL"):
+            # Offset por fila: cuando la fila trae explícita la celda de
+            # sección (rowspan inicial) tiene len==len(headers); cuando la
+            # hereda viene con 1 menos. Calculamos diff.
+            off = _offset_for_row(row)
+            row_col_ph_eff = col_ph - off
+            row_col_fij_eff = col_fij - off
+            row_col_afij_eff = (col_afij - off) if col_afij is not None else None
+            ph_v = _to_float_ar(row[row_col_ph_eff]) if 0 <= row_col_ph_eff < len(row) else None
+            fij_v = _to_float_ar(row[row_col_fij_eff]) if 0 <= row_col_fij_eff < len(row) else None
+            afij_v = (_to_float_ar(row[row_col_afij_eff])
+                      if (row_col_afij_eff is not None and 0 <= row_col_afij_eff < len(row))
                       else None)
             if ph_v is not None and fij_v is not None:
                 ph, fij = ph_v, fij_v

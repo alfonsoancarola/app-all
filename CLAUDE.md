@@ -16,10 +16,13 @@ Una única app de Streamlit con un menú de **cuatro** botones:
   Charts, Origin map (Matrix y Destinations están desactivadas).
 - 🚢 **Lineups** — la app `Lineups/lineups_app.py` original, con overlay
   de compras FS (violeta) sobre los charts mensuales.
-- 📦 **Pos. Física** — heatmap consolidado (sin selectores) por cultivo:
-  rows = 4 destinos (Up River + Bahía + Necochea + Interior), cols =
-  buckets de delivery, cada celda muestra FS / Lineup / Posición.
-  Subtotales por destino y por bucket + grand total por cultivo.
+- 📦 **Pos. Física** — heatmap por cultivo: rows = **meses calendario**
+  (12 meses, con el bucket como sublabel), cols = **Total + 4 puertos**
+  (Up River + Bahía + Necochea + Interior). Cada celda muestra FS /
+  Exports / Pos / Pace en 2×2. Toggle "Por mes / Acumulada" arriba.
+  8 summary cards: FS PH+Fij, A_Fijar (MAGYP), Exports Real, Pos. Real
+  Física, Stock/Usage (en meses), Exports Estimados, Pos. Total y Pace
+  a flat.
 
 El menú está en `app_all.py`. El dashboard y la pos. física son módulos
 nativos (`dashboard.py`, `pos_fisica.py`).
@@ -217,17 +220,36 @@ El chart Monthly Pace usa eje X **ordinal** (`dia:O`), no temporal. Eso
 hace que sábados y domingos no aparezcan como huecos planos en la curva —
 lunes a viernes quedan visualmente contiguos.
 
-### Pos. Física: bucket → meses
+### Schema mensual de las matrices (granularidad nativa)
 
-Cada bucket de FS agrupa 2 o 3 meses de delivery:
+A partir de mayo-26 las matrices FS tienen columnas por **mes calendario
+individual** (`2026_03, 2026_04, 2026_05, ..., 2027_02, NC`) en lugar de
+columnas por bucket (MAM/JJ/AS/...). Esto le da a Pos. Física granularidad
+mensual real para el detalle FS por (mes × puerto).
+
+Los buckets siguen existiendo como concepto y se calculan **al vuelo**
+con el helper `expand_buckets_from_months(df, cfg)` en `cultivos.py`. Los
+consumidores legacy (`fs_maiz/app.py`, `dashboard.py`) leen el CSV mensual
+y obtienen las columnas de bucket virtuales sumando las cols mensuales
+correspondientes — así Monthly Pace, Charts, Dashboard, todo sigue
+funcionando sin tocar una línea más.
+
+Funciones clave en `fs_maiz/cultivos.py`:
+- `meses_cols(cfg) → list[str]`: cols mensuales del cultivo (incluye NC al final si aplica).
+- `mes_de_entrega(date, cfg) → str | None`: mapea `fecha_desde` → `"2026_03"` (o None si fuera de rango).
+- `bucket_to_meses(cfg) → dict`: mapping `{"MAM": ["2026_03","2026_04","2026_05"], ...}`.
+- `expand_buckets_from_months(df, cfg)`: agrega cols de bucket virtuales sumando las mensuales.
+
+### Pos. Física: bucket → meses (sigue válido como concepto)
+
+Cada bucket agrupa 2 o 3 meses de delivery:
 
 - Maíz / Sorgo: MAM=Mar–May, JJ=Jun–Jul, AS=Aug–Sep, OND=Oct–Dec, JF=Jan–Feb
 - Trigo / Cebada: NDJ=Nov–Jan, FMA=Feb–Apr, MJJ=May–Jul, ASO=Aug–Oct
 
 En `pos_fisica.py` están las constantes `BUCKETS_BY_SLUG` (mes → bucket)
-y `BUCKET_MONTHS_BY_SLUG` (bucket → lista de meses). El heatmap suma
-**TODOS los meses del bucket** en Lineups para ser apples-to-apples
-con la suma del bucket de FS.
+y `BUCKET_MONTHS_BY_SLUG` (bucket → lista de meses). El heatmap muestra
+los **meses individuales** como filas, con el bucket como sublabel.
 
 ### Pos. Física: Interior no tiene Lineup
 
@@ -253,16 +275,69 @@ breakdownea por Sailed/Roads/Lineup — es un total agregado.
 Sumar más xls al directorio Lineups/ (cuando llegan los del mes nuevo)
 reduce la parte proyectada y aumenta la parte real automáticamente.
 
-### Pos. Física: Posición = FS − Lineup estimado
+### Pos. Física: A_Fijar (saldo a fijar de MAGYP)
 
-`Posición` se calcula como `FS_realizado − Lineup_estimado_total`
-(donde estimado = real + proyectado). Convención de signos:
-- **Positivo (LONG)** 🟢 — vendimos más en FS de lo que vamos a embarcar.
-- **Negativo (SHORT)** 🔴 — vamos a embarcar más de lo vendido (hay que
-  comprar más o cubrir con stock).
+El A_Fijar (Saldo a Fijar columna 5 de MAGYP) es **commitment físico** —
+tonelada vendida con precio abierto. Se levanta de
+`data/minagri_<slug>_<cosecha>.json` vía `_load_a_fijar_kt()`.
+
+Distribución:
+- **TODO el A_Fijar va al bucket de cosecha** (MAM maíz/sorgo, NDJ trigo/cebada).
+- **Solo a puertos de exportación** (Up River + Bahía + Necochea). Interior recibe 0.
+- **Pro-rata por peso del FS PH+Fij** de cada celda (mes × puerto) dentro
+  del bucket de cosecha: `weight = FS_celda / SUMA_FS_export_en_cosecha`.
+
+Asunción: las nuevas fijaciones se distribuyen como las fijaciones cerradas
+históricamente. Es heurística — no sabemos el destino real hasta que se
+fija precio.
+
+### Pos. Física: Posición REAL vs Posición TOTAL
+
+Dos posiciones que se muestran en summary cards:
+
+- **Pos. Real Física = (FS PH+Fij + A_Fijar) − Exports Real**
+  Todo lo comprometido físicamente HOY (priced + open price) vs lo ya
+  embarcado. Lo que efectivamente sobre/falta hoy.
+- **Pos. Total = (FS PH+Fij + A_Fijar) − Exports Estimados**
+  Misma posición pero comparando contra MARS-projected exports. Forward
+  looking — incluye proyección de lo que vamos a embarcar.
+
+La diferencia entre ambas = parte proyectada de Exports (real + proj − real
+= proj). Importante: el **A_Fijar entra en ambas** porque es commitment
+físico igual que el PH+Fij.
+
+Convención de signos:
+- **Positivo (LONG)** 🟢 — vendimos/comprometimos más de lo embarcado.
+- **Negativo (SHORT)** 🔴 — vamos a embarcar más de lo comprometido (hay
+  que comprar más o cubrir con stock).
 - **Cerca de cero** — alineado.
 
-Es razonable que los buckets futuros (JJ/AS/OND/JF en maíz; ASO en
+### Pos. Física: Stock to Usage (en meses)
+
+Card de cobertura en meses. La lógica:
+
+1. Consume el LONG (Pos. Real Física) contra los exports MARS mes a mes
+   en orden cronológico.
+2. Arranca desde el **mes siguiente al actual** (los meses pasados se
+   asumen ya embarcados).
+3. Respeta la estacionalidad real de MARS (cosecha = ritmo alto, valles
+   = ritmo bajo). No es un cálculo lineal anual.
+4. Output: cuántos meses dura el LONG actual al ritmo MARS proyectado.
+
+Para SHORT (Pos. Real < 0), el signo se invierte y representa "faltan X
+meses para cerrar el gap al ritmo MARS".
+
+### Pos. Física: vista mes × puerto
+
+El heatmap pasó de `destino × bucket` a `mes × puerto`:
+- **Filas:** 12 meses calendario del cultivo (con bucket como sublabel).
+- **Cols:** Total + Up River + Bahía Blanca + Necochea + Interior.
+- **Toggle "Por mes / Acumulada":** en modo Acumulada cada celda muestra
+  el running total desde el primer mes hasta el actual.
+- **PACE por celda:** días hábiles desde HOY hasta el fin del mes
+  calendario específico (más fino que el PACE viejo por bucket).
+
+Es razonable que los meses futuros (JJ/AS/OND/JF en maíz; ASO en
 trigo) muestren SHORT grande, porque MARS proyecta el flujo completo
 pero FS solo registra lo ya fijado.
 
@@ -429,6 +504,22 @@ también la card de summary `total_pos` en la misma lógica.
 - **No cambiar la `lineups_zone` de Interior a un string** en
   `pos_fisica.py` — `None` es el flag que el código usa para saber que
   no debe filtrar Lineups (Interior no exporta).
+- **No leer `pd.read_csv("matriz_*.csv")` sin pasar por el helper** —
+  el schema ahora es mensual (`2026_03, 2026_04, ...`). Los consumidores
+  legacy esperan cols de bucket (`MAM, JJ, ...`). Hay que usar
+  `_load_one_matriz_csv(path, GRUPOS, cfg=cfg)` en `fs_maiz/app.py` o
+  `_read_matriz_csv_with_buckets(path, slug)` en `dashboard.py` —
+  ambos detectan schema y expanden buckets virtuales via
+  `expand_buckets_from_months`. En `pos_fisica.py` lo hace
+  `_load_matriz_puerto` automáticamente.
+- **No iterar `cfg["grupos"]` para parsear los valores numéricos del CSV
+  en código nuevo** — `cfg["grupos"]` sigue siendo la lista de buckets
+  (`["MAM","JJ","AS","OND","JF","NC"]` para maíz). Para las cols del CSV
+  ahora se usa `meses_cols(cfg)` que devuelve los identifiers mensuales.
+- **A_Fijar entra SIEMPRE en la Pos. Real Física** — es commitment
+  físico, no opcional. La fórmula correcta es
+  `Pos. Real = (FS PH+Fij + A_Fijar) − Exports Real`, NO
+  `FS PH+Fij − Exports Real` solo.
 
 ## Deploy (pendiente)
 

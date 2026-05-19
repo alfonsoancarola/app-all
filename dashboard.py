@@ -123,6 +123,30 @@ def _matriz_path(fs_dir: Path, slug: str) -> Path:
 _WHEAT_EXPORT_PORTS = ["uprivers", "bahia", "necochea"]
 
 
+def _read_matriz_csv_with_buckets(path: Path, slug: str) -> pd.DataFrame:
+    """Lee una matriz CSV (schema mensual o legacy bucket) y devuelve un DF
+    con las columnas de buckets disponibles. Si el CSV tiene cols mensuales
+    (2026_03...), se calculan los buckets sumando esas cols vía
+    `expand_buckets_from_months`. Si tiene cols nativas de buckets, se
+    devuelve tal cual."""
+    import sys
+    fs_path = str(Path(__file__).resolve().parent / "fs_maiz")
+    if fs_path not in sys.path:
+        sys.path.insert(0, fs_path)
+    from cultivos import CULTIVOS, meses_cols, expand_buckets_from_months  # type: ignore
+    df = pd.read_csv(path)
+    cfg = CULTIVOS.get(slug)
+    if cfg is not None:
+        mcols = meses_cols(cfg)
+        has_monthly = any(c in df.columns for c in mcols)
+        if has_monthly:
+            for c in mcols:
+                if c in df.columns:
+                    df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).astype(int)
+            expand_buckets_from_months(df, cfg)
+    return df
+
+
 @st.cache_data(show_spinner=False)
 def _load_matriz(_fs_dir_str: str, slug: str) -> pd.DataFrame:
     base = Path(_fs_dir_str) / "data"
@@ -132,11 +156,11 @@ def _load_matriz(_fs_dir_str: str, slug: str) -> pd.DataFrame:
         sub_paths = [base / f"matriz_trigo_{p}.csv" for p in _WHEAT_EXPORT_PORTS]
         if all(p.exists() for p in sub_paths):
             try:
-                dfs = [pd.read_csv(p) for p in sub_paths]
+                dfs = [_read_matriz_csv_with_buckets(p, slug) for p in sub_paths]
             except Exception:
                 # Fallback al matriz total si algo falla al leer
                 p_total = base / "matriz_trigo.csv"
-                return pd.read_csv(p_total) if p_total.exists() else pd.DataFrame()
+                return _read_matriz_csv_with_buckets(p_total, slug) if p_total.exists() else pd.DataFrame()
 
             num_cols = ["NDJ", "FMA", "MJJ", "ASO", "NC", "total", "min"]
             num_cols = [c for c in num_cols if c in dfs[0].columns]
@@ -158,7 +182,7 @@ def _load_matriz(_fs_dir_str: str, slug: str) -> pd.DataFrame:
     if not p.exists():
         return pd.DataFrame()
     try:
-        return pd.read_csv(p)
+        return _read_matriz_csv_with_buckets(p, slug)
     except Exception:
         return pd.DataFrame()
 

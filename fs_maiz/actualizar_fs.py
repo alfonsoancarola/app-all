@@ -30,7 +30,10 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Iterable
 
-from cultivos import CULTIVOS, get_cultivo, grupo_de_entrega, minagri_json_path
+from cultivos import (
+    CULTIVOS, get_cultivo, grupo_de_entrega, mes_de_entrega,
+    meses_cols, minagri_json_path,
+)
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DATA_DIR = SCRIPT_DIR / "data"
@@ -268,20 +271,24 @@ def delta_minagri_mes(serie: list[dict], year: int, month: int) -> int:
 
 def construir_matriz(ops: list[Operacion], hoy: date, cultivo_cfg: dict,
                       ops_nc: list[Operacion] | None = None) -> list[dict]:
-    """Construye la matriz del cultivo.
+    """Construye la matriz del cultivo con COLUMNAS POR MES INDIVIDUAL.
+
+    Columnas: cada mes calendario de delivery (`2026_03`, `2026_04`, ...)
+              + 'NC' al final si el cultivo lo tiene.
 
     ops:    operaciones de la cosecha "actual" (cfg["cosecha"]).
-            Se reparten en los delivery_groups normales, EXCLUYENDO el bucket NC.
+            Se reparten por mes calendario de entrega (mes_de_entrega).
     ops_nc: operaciones de la cosecha "nueva" (cfg["cosecha_nc"]) — opcional.
-            TODAS van al bucket NC (sin importar la fecha de entrega), ya que
-            representan forward sales de la cosecha que aún no se cosechó.
-            Si el cultivo no tiene grupo "NC", se ignora.
+            TODAS van a la columna 'NC' (sin importar la fecha de entrega),
+            ya que representan forward sales de la cosecha que aún no se
+            cosechó. Si el cultivo no tiene 'NC', se ignora.
     """
     ops_nc = ops_nc or []
     minagri = cargar_minagri(SCRIPT_DIR / minagri_json_path(cultivo_cfg))
-    grupos = cultivo_cfg["grupos"]
-    has_nc = "NC" in grupos
-    base = {g: 0 for g in grupos}
+    cols = meses_cols(cultivo_cfg)   # ['2026_03', ..., 'NC'] o sin NC
+    has_nc = "NC" in cols
+    cols_mensuales = [c for c in cols if c != "NC"]
+    base = {c: 0.0 for c in cols}
     filas: list[dict] = []
 
     # ── Mensuales ─────────────────────────────────────────────────────────
@@ -289,30 +296,32 @@ def construir_matriz(ops: list[Operacion], hoy: date, cultivo_cfg: dict,
     hasta  = mes_anterior(hoy)
     for (y, m) in meses_mensuales(primer, hasta):
         sio = base.copy()
-        # Pass 1: operaciones cosecha actual → reparto por delivery group (sin NC)
+        # Pass 1: operaciones cosecha actual → reparto por mes de delivery
         for o in ops:
             if o.fecha_conc.year == y and o.fecha_conc.month == m:
-                g = grupo_de_entrega(o.fecha_desde, cultivo_cfg)
-                if g and g != "NC":
-                    sio[g] += o.cant_tn
+                k = mes_de_entrega(o.fecha_desde, cultivo_cfg)
+                if k:
+                    sio[k] += o.cant_tn
         # Pass 2: operaciones cosecha NC → todo a "NC"
         if has_nc:
             for o in ops_nc:
                 if o.fecha_conc.year == y and o.fecha_conc.month == m:
                     sio["NC"] += o.cant_tn
 
-        # MINAGRI×split aplica solo a la cosecha actual (NC es otro universo)
-        total_actual = sum(sio[g] for g in grupos if g != "NC")
+        # MINAGRI×split aplica solo a la cosecha actual (NC es otro universo).
+        # El split se hace a nivel mensual: cada mes calendario hereda la
+        # proporción de SIO que tiene del MINAGRI total del mes operativo.
+        total_actual = sum(sio[c] for c in cols_mensuales)
         total_minagri = delta_minagri_mes(minagri, y, m)
 
         if total_minagri > 0 and total_actual > 0:
-            cells = {g: int(round(total_minagri * (sio[g] / total_actual)))
-                     for g in grupos if g != "NC"}
+            cells = {c: int(round(total_minagri * (sio[c] / total_actual)))
+                     for c in cols_mensuales}
             if has_nc:
                 cells["NC"] = int(round(sio["NC"]))  # NC queda como raw SIO
             fuente = "MINAGRI×split SIO"
         else:
-            cells = {g: int(round(sio[g])) for g in grupos}
+            cells = {c: int(round(sio[c])) for c in cols}
             total_any = total_actual + (sio.get("NC", 0) if has_nc else 0)
             fuente = "SIO crudo" if total_any > 0 else "vacío"
 
@@ -359,8 +368,8 @@ def construir_matriz(ops: list[Operacion], hoy: date, cultivo_cfg: dict,
             for o in ops:
                 if (o.fecha_conc.year == y and o.fecha_conc.month == m
                         and ini_mes <= o.fecha_conc <= last_min_date):
-                    g = grupo_de_entrega(o.fecha_desde, cultivo_cfg)
-                    if g and g != "NC":
+                    k = mes_de_entrega(o.fecha_desde, cultivo_cfg)
+                    if k:
                         sio_freeze_total += o.cant_tn
 
             if minagri_freeze_tn > 0 and sio_freeze_total > 0:
@@ -373,22 +382,22 @@ def construir_matriz(ops: list[Operacion], hoy: date, cultivo_cfg: dict,
                 break
             agg = base.copy()
             is_frozen = (last_min_date is not None and d <= last_min_date)
-            # Pass 1: cosecha actual — escalar si día frozen
+            # Pass 1: cosecha actual — escalar si día frozen, reparto por MES
             scale = freeze_scale if is_frozen else 1.0
             for o in ops:
                 if o.fecha_conc == d:
-                    g = grupo_de_entrega(o.fecha_desde, cultivo_cfg)
-                    if g and g != "NC":
-                        agg[g] += o.cant_tn * scale
+                    k = mes_de_entrega(o.fecha_desde, cultivo_cfg)
+                    if k:
+                        agg[k] += o.cant_tn * scale
             # Pass 2: cosecha NC → todo a NC (SIN escalar)
             if has_nc:
                 for o in ops_nc:
                     if o.fecha_conc == d:
                         agg["NC"] += o.cant_tn
-            agg_int = {g: int(round(agg[g])) for g in grupos}
+            agg_int = {c: int(round(agg[c])) for c in cols}
             # min: contribución MINAGRI atribuida a ese día (frozen) o 0
             day_min = int(round(
-                sum(agg_int[g] for g in grupos if g != "NC")
+                sum(agg_int[c] for c in cols_mensuales)
             )) if is_frozen else 0
             filas.append({
                 "tipo": "diario", "label": d_label,
@@ -401,9 +410,9 @@ def construir_matriz(ops: list[Operacion], hoy: date, cultivo_cfg: dict,
 
 def construir_destinos(ops: list[Operacion], cultivo_cfg: dict) -> list[dict]:
     """CSV paralelo: tn por (mes_concertacion, destino).
-    Solo cuenta operaciones que caen en alguno de los buckets de delivery
-    (MAM/JJ/AS/OND/JF para maíz/sorgo, NDJ/FMA/MJJ/ASO para trigo/cebada),
-    para que los totales coincidan con la matriz mensual."""
+    Solo cuenta operaciones cuya fecha_desde cae en algún mes válido de
+    delivery (excluye fechas fuera del rango cosecha-actual), para que los
+    totales coincidan con la matriz mensual."""
     from destinos import categorizar, DESTINOS
 
     primer = cultivo_cfg["primer_mes_mensual"]
@@ -418,8 +427,8 @@ def construir_destinos(ops: list[Operacion], cultivo_cfg: dict) -> list[dict]:
         agg = base.copy()
         for o in ops:
             if o.fecha_conc.year == y and o.fecha_conc.month == m:
-                # Filtro: solo si la entrega cae en algún bucket de delivery
-                if grupo_de_entrega(o.fecha_desde, cultivo_cfg) is None:
+                # Filtro: solo si la entrega cae en algún mes válido
+                if mes_de_entrega(o.fecha_desde, cultivo_cfg) is None:
                     continue
                 d = categorizar(o.lugar_entrega)
                 agg[d] += o.cant_tn
@@ -455,11 +464,12 @@ def escribir_origenes(filas: list[dict], path: Path) -> None:
 
 def construir_matriz_solo_sio(ops: list[Operacion], hoy: date, cultivo_cfg: dict,
                                 ops_nc: list[Operacion] | None = None) -> list[dict]:
-    """Versión SIN MINAGRI×split (solo SIO crudo). Mismo split NC que construir_matriz."""
+    """Versión SIN MINAGRI×split (solo SIO crudo). Cols mensuales (igual que
+    construir_matriz). Mismo split NC."""
     ops_nc = ops_nc or []
-    grupos = cultivo_cfg["grupos"]
-    has_nc = "NC" in grupos
-    base = {g: 0 for g in grupos}
+    cols = meses_cols(cultivo_cfg)
+    has_nc = "NC" in cols
+    base = {c: 0 for c in cols}
     filas: list[dict] = []
 
     primer = cultivo_cfg["primer_mes_mensual"]
@@ -468,14 +478,14 @@ def construir_matriz_solo_sio(ops: list[Operacion], hoy: date, cultivo_cfg: dict
         sio = base.copy()
         for o in ops:
             if o.fecha_conc.year == y and o.fecha_conc.month == m:
-                g = grupo_de_entrega(o.fecha_desde, cultivo_cfg)
-                if g and g != "NC":
-                    sio[g] += o.cant_tn
+                k = mes_de_entrega(o.fecha_desde, cultivo_cfg)
+                if k:
+                    sio[k] += o.cant_tn
         if has_nc:
             for o in ops_nc:
                 if o.fecha_conc.year == y and o.fecha_conc.month == m:
                     sio["NC"] += o.cant_tn
-        cells = {g: int(round(sio[g])) for g in grupos}
+        cells = {c: int(round(sio[c])) for c in cols}
         filas.append({
             "tipo": "mensual", "label": label_mes(y, m),
             **cells, "total": sum(cells.values()),
@@ -492,14 +502,14 @@ def construir_matriz_solo_sio(ops: list[Operacion], hoy: date, cultivo_cfg: dict
             agg = base.copy()
             for o in ops:
                 if o.fecha_conc == d:
-                    g = grupo_de_entrega(o.fecha_desde, cultivo_cfg)
-                    if g and g != "NC":
-                        agg[g] += o.cant_tn
+                    k = mes_de_entrega(o.fecha_desde, cultivo_cfg)
+                    if k:
+                        agg[k] += o.cant_tn
             if has_nc:
                 for o in ops_nc:
                     if o.fecha_conc == d:
                         agg["NC"] += o.cant_tn
-            agg_int = {g: int(round(agg[g])) for g in grupos}
+            agg_int = {c: int(round(agg[c])) for c in cols}
             filas.append({
                 "tipo": "diario", "label": d_label,
                 **agg_int, "total": sum(agg_int.values()),
@@ -519,8 +529,15 @@ def escribir_destinos(filas: list[dict], path: Path) -> None:
             w.writerow({k: fila.get(k, 0) for k in cols})
 
 
-def escribir_matriz(filas: list[dict], path: Path, grupos: list[str]) -> None:
-    cols = ["tipo", "label", *grupos, "total", "low", "prior", "min"]
+def escribir_matriz(filas: list[dict], path: Path, columnas_datos: list[str]) -> None:
+    """Escribe la matriz a CSV.
+
+    columnas_datos: lista de cols que tienen los valores numéricos por
+    período. Para el nuevo schema mensual, es `meses_cols(cfg)` (ej.
+    ['2026_03', '2026_04', ..., 'NC']). El argumento conserva el nombre
+    genérico para no romper invocaciones externas.
+    """
+    cols = ["tipo", "label", *columnas_datos, "total", "low", "prior", "min"]
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as f:
         w = csv.DictWriter(f, fieldnames=cols)
@@ -569,12 +586,12 @@ def main(argv: list[str] | None = None) -> int:
 
     filas = construir_matriz(ops, hoy, cfg, ops_nc=ops_nc)
     matriz_path = DATA_DIR / cfg["matriz_csv"]
-    escribir_matriz(filas, matriz_path, cfg["grupos"])
+    escribir_matriz(filas, matriz_path, meses_cols(cfg))
     _log(f"Escrito: {matriz_path}")
 
     # Compat: maíz también escribe matriz_fs.csv (la app vieja lo carga)
     if cfg["matriz_csv"] == "matriz_maiz.csv":
-        escribir_matriz(filas, DATA_DIR / "matriz_fs.csv", cfg["grupos"])
+        escribir_matriz(filas, DATA_DIR / "matriz_fs.csv", meses_cols(cfg))
         _log("Escrito: data/matriz_fs.csv (alias legacy)")
 
     # CSV paralelo: desglose por destino (Up River / Bahía / Necochea / Interior)
@@ -592,7 +609,7 @@ def main(argv: list[str] | None = None) -> int:
         ops_nc_dest = [o for o in ops_nc if categorizar(o.lugar_entrega) == dest]
         filas_d = construir_matriz_solo_sio(ops_dest, hoy, cfg, ops_nc=ops_nc_dest)
         p_dest = DATA_DIR / cfg["matriz_csv"].replace(".csv", f"_{dest}.csv")
-        escribir_matriz(filas_d, p_dest, cfg["grupos"])
+        escribir_matriz(filas_d, p_dest, meses_cols(cfg))
     _log(f"Matrices por destino escritas: 4 × {cfg['label']}")
 
     # CSV de orígenes (provincia × fecha) para el mapa coroplético.
@@ -613,7 +630,7 @@ def main(argv: list[str] | None = None) -> int:
     print("Resumen:")
     for f in filas:
         if f["tipo"] != "diario":
-            grupos_str = "  ".join(f"{g}={f[g]:>9}" for g in cfg["grupos"])
+            grupos_str = "  ".join(f"{g}={f[g]:>9}" for g in meses_cols(cfg))
             print(f"  [{f['tipo']:<11}] {f['label']:<15} {grupos_str}  total={f['total']:>10}  "
                   f"min={f['min']:>9}  {f.get('_fuente','')}")
     n_diarios = sum(1 for f in filas if f["tipo"] == "diario")

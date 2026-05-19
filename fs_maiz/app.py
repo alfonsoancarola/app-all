@@ -47,8 +47,28 @@ def fmt_pct(v):
 _WHEAT_EXPORT_PORTS = ["uprivers", "bahia", "necochea"]
 
 
-def _load_one_matriz_csv(path, cols_grupos):
+def _load_one_matriz_csv(path, cols_grupos, cfg=None):
+    """Lee una matriz CSV y devuelve un DataFrame.
+
+    Schema nuevo: el CSV tiene columnas por mes (2026_03, 2026_04, ..., NC).
+    Schema viejo: el CSV tiene columnas por bucket (MAM, JJ, ..., NC).
+
+    Si recibimos `cfg`, expandimos los buckets virtuales sumando las cols
+    mensuales correspondientes, para que `df["MAM"]` siga funcionando aunque
+    el CSV sea mensual. Si no recibimos `cfg`, asumimos schema viejo.
+    """
+    from cultivos import meses_cols as _meses_cols, expand_buckets_from_months
     df = pd.read_csv(path)
+    # Detectar schema: si están las cols mensuales esperadas, expandir buckets
+    if cfg is not None:
+        mcols = _meses_cols(cfg)
+        has_monthly = any(c in df.columns for c in mcols)
+        if has_monthly:
+            for col in mcols:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
+            expand_buckets_from_months(df, cfg)
+    # Numerizar cols de buckets (existan nativas o vía expansion) + total
     for col in cols_grupos + ["total"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
@@ -74,9 +94,9 @@ def load_matriz(cfg: dict):
             path = DATA_DIR / cfg["matriz_csv"]
             if not path.exists():
                 return None
-            df = _load_one_matriz_csv(path, cfg["grupos"])
+            df = _load_one_matriz_csv(path, cfg["grupos"], cfg=cfg)
         else:
-            sub_dfs = [_load_one_matriz_csv(p, cfg["grupos"]) for p in sub_paths]
+            sub_dfs = [_load_one_matriz_csv(p, cfg["grupos"], cfg=cfg) for p in sub_paths]
             df = sub_dfs[0].copy()
             num_cols = cfg["grupos"] + ["total"]
             for other in sub_dfs[1:]:
@@ -100,7 +120,7 @@ def load_matriz(cfg: dict):
         path = DATA_DIR / cfg["matriz_csv"]
         if not path.exists():
             return None
-        df = _load_one_matriz_csv(path, cfg["grupos"])
+        df = _load_one_matriz_csv(path, cfg["grupos"], cfg=cfg)
 
     for col in cfg["grupos"] + ["total"]:
         if col in df.columns:
@@ -219,9 +239,10 @@ def apply_destination_filter(df, cfg, destinos_sel, grupos, all_destinos):
         p = DATA_DIR / cfg["matriz_csv"].replace(".csv", f"_{d}.csv")
         if p.exists():
             try:
-                dfd = pd.read_csv(p)
+                dfd = _load_one_matriz_csv(p, grupos, cfg=cfg)
                 for col in grupos + ["total"]:
-                    dfd[col] = pd.to_numeric(dfd[col], errors="coerce").fillna(0)
+                    if col in dfd.columns:
+                        dfd[col] = pd.to_numeric(dfd[col], errors="coerce").fillna(0)
                 per_dest[d] = dfd
             except Exception:
                 pass
@@ -1993,9 +2014,10 @@ if False:
             _p = DATA_DIR / cfg["matriz_csv"].replace(".csv", f"_{_d}.csv")
             if _p.exists():
                 try:
-                    _dfd = pd.read_csv(_p)
+                    _dfd = _load_one_matriz_csv(_p, GRUPOS, cfg=cfg)
                     for _col in GRUPOS + ["total"]:
-                        _dfd[_col] = pd.to_numeric(_dfd[_col], errors="coerce").fillna(0)
+                        if _col in _dfd.columns:
+                            _dfd[_col] = pd.to_numeric(_dfd[_col], errors="coerce").fillna(0)
                     _per_dest[_d] = _dfd
                 except Exception:
                     _missing.append(_d)

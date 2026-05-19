@@ -259,6 +259,97 @@ def grupo_de_entrega(d: date | None, cultivo_cfg: dict) -> str | None:
     return None
 
 
+# ── Granularidad mensual (matriz nueva con cols por mes) ─────────────────────
+#
+# La matriz histórica tenía columnas por bucket (MAM/JJ/AS/OND/JF/NC). Para
+# tener detalle mes-a-mes en Pos. Física, ahora las matrices tienen columnas
+# por mes calendario individual (`2026_03`, `2026_04`, ...). Los buckets se
+# reconstruyen al vuelo en los loaders vía `expand_buckets_from_months`.
+
+def _mes_key(year: int, month: int) -> str:
+    """Identifier estable para mes calendario: '2026_03'."""
+    return f"{year:04d}_{month:02d}"
+
+
+def meses_cols(cultivo_cfg: dict) -> list[str]:
+    """Lista ordenada cronológicamente de columnas mensuales del cultivo,
+    cubriendo el rango total de delivery_groups (excluyendo NC). Si el
+    cultivo tiene bucket 'NC', éste se agrega al final como columna aparte.
+    """
+    out: list[str] = []
+    for g, ini, fin in cultivo_cfg["delivery_groups"]:
+        if g == "NC":
+            continue  # NC se agrega al final
+        y, m = ini.year, ini.month
+        while (y, m) <= (fin.year, fin.month):
+            key = _mes_key(y, m)
+            if key not in out:
+                out.append(key)
+            m += 1
+            if m == 13:
+                m, y = 1, y + 1
+    if any(g == "NC" for g, _, _ in cultivo_cfg["delivery_groups"]):
+        out.append("NC")
+    return out
+
+
+def bucket_to_meses(cultivo_cfg: dict) -> dict[str, list[str]]:
+    """Dict {bucket: [mes_keys]} para reconstruir buckets desde cols mensuales.
+
+    Ej. maíz → {"MAM": ["2026_03","2026_04","2026_05"],
+                "JJ":  ["2026_06","2026_07"], ..., "NC": ["NC"]}
+    """
+    out: dict[str, list[str]] = {}
+    for g, ini, fin in cultivo_cfg["delivery_groups"]:
+        if g == "NC":
+            out["NC"] = ["NC"]
+            continue
+        keys: list[str] = []
+        y, m = ini.year, ini.month
+        while (y, m) <= (fin.year, fin.month):
+            keys.append(_mes_key(y, m))
+            m += 1
+            if m == 13:
+                m, y = 1, y + 1
+        out[g] = keys
+    return out
+
+
+def mes_de_entrega(d: date | None, cultivo_cfg: dict) -> str | None:
+    """Maps a delivery date to its individual calendar-month key
+    (`'2026_05'`). Returns None si la fecha cae fuera de todos los
+    delivery_groups (mismo filtro que `grupo_de_entrega`).
+    """
+    if d is None:
+        return None
+    for g, ini, fin in cultivo_cfg["delivery_groups"]:
+        if g == "NC":
+            continue  # NC se llena vía cosecha_nc, no por fecha
+        if ini <= d <= fin:
+            return _mes_key(d.year, d.month)
+    return None
+
+
+def expand_buckets_from_months(df, cultivo_cfg: dict):
+    """Toma un DataFrame con cols mensuales (2026_03, 2026_04, ...) + NC y
+    agrega columnas virtuales por bucket sumando las cols mensuales
+    correspondientes. Si las cols de bucket ya existen, no las pisa.
+
+    No requiere import de pandas a nivel de módulo (lazy-importado por uso).
+    """
+    mapping = bucket_to_meses(cultivo_cfg)
+    for bucket, meses in mapping.items():
+        if bucket in df.columns:
+            continue  # ya existe (matriz vieja con buckets nativos)
+        # Sumar cols mensuales que existen en el DF
+        cols_presentes = [c for c in meses if c in df.columns]
+        if not cols_presentes:
+            df[bucket] = 0
+        else:
+            df[bucket] = df[cols_presentes].sum(axis=1)
+    return df
+
+
 def slug_de(cultivo_cfg: dict) -> str:
     """ASCII slug of the crop (searches in CULTIVOS)."""
     for slug, c in CULTIVOS.items():

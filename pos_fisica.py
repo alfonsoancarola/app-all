@@ -159,6 +159,17 @@ BUCKETS_BY_SLUG = {
     "cebada": _BUCKETS_TRIGO_CEBADA,
 }
 
+# Bucket de cosecha (harvest) por cultivo — todo el A_Fijar de MAGYP
+# se asigna a este bucket, distribuido entre los 3 puertos de exportación
+# según el peso del FS PH+Fij dentro del bucket.
+HARVEST_BUCKET_BY_SLUG = {
+    "maiz":   "MAM",   # cosecha maíz Mar-May 26
+    "sorgo":  "MAM",
+    "trigo":  "NDJ",   # cosecha trigo Nov-Ene 25/26
+    "cebada": "NDJ",
+}
+
+
 # Composición inversa de los buckets: cada bucket → lista de meses
 # (year, month) que lo componen. Necesario para sumar Lineups across
 # todos los meses del bucket.
@@ -209,14 +220,35 @@ def _fmt_tn(v):
 
 @st.cache_data(show_spinner=False)
 def _load_matriz_puerto(_fs_dir_str: str, slug: str, puerto: str) -> pd.DataFrame:
-    """Lee matriz_<slug>_<puerto>.csv. Devuelve DF vacío si no existe."""
+    """Lee matriz_<slug>_<puerto>.csv. Si el CSV tiene cols mensuales
+    (2026_03 ...), expande los buckets virtuales para compat. Devuelve DF
+    vacío si no existe."""
     p = Path(_fs_dir_str) / "data" / f"matriz_{slug}_{puerto}.csv"
     if not p.exists():
         return pd.DataFrame()
     try:
-        return pd.read_csv(p)
+        df = pd.read_csv(p)
     except Exception:
         return pd.DataFrame()
+    # Expandir buckets virtuales si el schema es mensual
+    import sys
+    fs_path = str(Path(_fs_dir_str))
+    if fs_path not in sys.path:
+        sys.path.insert(0, fs_path)
+    try:
+        from cultivos import CULTIVOS, meses_cols, expand_buckets_from_months  # type: ignore
+        cfg = CULTIVOS.get(slug)
+        if cfg is not None:
+            mcols = meses_cols(cfg)
+            has_monthly = any(c in df.columns for c in mcols)
+            if has_monthly:
+                for c in mcols:
+                    if c in df.columns:
+                        df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).astype(int)
+                expand_buckets_from_months(df, cfg)
+    except Exception:
+        pass
+    return df
 
 
 def _fs_bucket_total(df: pd.DataFrame, bucket: str) -> int:
@@ -225,6 +257,18 @@ def _fs_bucket_total(df: pd.DataFrame, bucket: str) -> int:
         return 0
     sub = df[df["tipo"].isin(["mensual", "diario"])]
     return int(sub[bucket].sum())
+
+
+def _fs_month_total(df: pd.DataFrame, year: int, month: int) -> int:
+    """Suma del mes calendario individual sobre filas mensuales+diarias.
+    Asume schema mensual de la matriz: cols tipo '2026_03', '2026_04', ..."""
+    if df.empty:
+        return 0
+    col = f"{year:04d}_{month:02d}"
+    if col not in df.columns:
+        return 0
+    sub = df[df["tipo"].isin(["mensual", "diario"])]
+    return int(sub[col].sum())
 
 
 # ── MARS (Country Balance Sheet) ────────────────────────────────────────────
@@ -390,6 +434,64 @@ def _compute_cell_data(
     }
 
 
+def _compute_cell_data_monthly(
+    slug: str, destino_slug: str, year: int, month: int,
+    fs_dir: Path,
+    df_lu_cargo: pd.DataFrame, exports_kt: dict, port_shares: dict,
+) -> dict:
+    """Idéntico a _compute_cell_data pero para UN mes calendario individual.
+
+    FS:      suma de la col '{year}_{month:02d}' en matriz_<slug>_<puerto>.csv.
+    Exports: si el mes tiene xls (en df_lu_cargo.MONTH) → suma de TONS por zona.
+             Si no → MARS_kt × share del puerto × 1000 (proyectado).
+    """
+    df_matriz = _load_matriz_puerto(str(fs_dir), slug, destino_slug)
+    fs_total = _fs_month_total(df_matriz, year, month)
+
+    lu_zone = DESTINOS[destino_slug]["lineups_zone"]
+    is_export = lu_zone is not None
+
+    full_month_lbl = f"{_MONTH_NAMES[month]} {year}"
+
+    sailed_roads_lineup = 0
+    projected_tn = 0
+    has_projection = False
+
+    if is_export and not df_lu_cargo.empty:
+        available = set(df_lu_cargo["MONTH"].unique())
+        if full_month_lbl in available:
+            mask_real = (
+                (df_lu_cargo["MONTH"] == full_month_lbl)
+                & (df_lu_cargo["ZONE"] == lu_zone)
+            )
+            sailed_roads_lineup = int(df_lu_cargo[mask_real]["TONS"].sum())
+        else:
+            mkey = _month_to_mars_key(year, month)
+            exp_kt = exports_kt.get(mkey)
+            share = port_shares.get(lu_zone, 0.0)
+            if exp_kt is not None:
+                projected_tn = int(round(exp_kt * 1000 * share))
+                has_projection = projected_tn > 0
+
+    pipeline_total = sailed_roads_lineup + projected_tn
+    if not is_export:
+        coverage = None
+    elif fs_total > 0:
+        coverage = pipeline_total / fs_total * 100
+    else:
+        coverage = None
+
+    return {
+        "fs_tn": fs_total,
+        "pipeline_real_tn": sailed_roads_lineup,
+        "projected_tn": projected_tn,
+        "pipeline_total_tn": pipeline_total,
+        "coverage_pct": coverage,
+        "has_projection": has_projection,
+        "is_export": is_export,
+    }
+
+
 def render_pos_fisica(app_all_dir: Path) -> None:
     fs_dir = app_all_dir / "fs_maiz"
     lineups_dir = app_all_dir / "Lineups"
@@ -403,6 +505,23 @@ def render_pos_fisica(app_all_dir: Path) -> None:
         "Color de fondo indica cobertura aproximada: 🟢 ≈100% · 🟡 gap chico · "
         "🔴 gap grande · ⬜ sin data FS."
     )
+
+    # Toggle: Por mes (flujo mensual) vs Acumulada (running total por puerto)
+    modo = st.radio(
+        "Vista",
+        options=["Por mes", "Acumulada"],
+        index=0,
+        horizontal=True,
+        help=(
+            "‘Por mes’ muestra el flujo de cada mes calendario por separado. "
+            "‘Acumulada’ muestra el running total por puerto: cada celda "
+            "acumula FS / Exports / Pos desde el primer mes del cultivo hasta "
+            "el mes de esa fila — útil para ver cómo se va abriendo el gap a "
+            "lo largo de la campaña."
+        ),
+        key="pos_fisica_modo",
+    )
+    is_acumulada = (modo == "Acumulada")
     st.markdown("<div style='height:0.5rem;'></div>", unsafe_allow_html=True)
 
     # ── Pre-cargar Lineups + MARS + shares por cultivo ─────────────────────
@@ -435,32 +554,49 @@ def render_pos_fisica(app_all_dir: Path) -> None:
             for d in destino_slugs
         )
 
-        # ── Calcular totales del cultivo (suma sobre destinos × buckets) ──
+        # ── Calcular totales del cultivo (cell_cache por (destino × mes)) ──
+        # La lista de meses calendario del cultivo (Mar 26 → Feb 27 maíz/sorgo,
+        # Nov 25 → Oct 26 trigo/cebada).
+        months_calendar = MONTHS_BY_SLUG[slug]  # [(label, year, month), ...]
         total_fs = 0
         total_lin_real = 0
         total_lin_proj = 0
-        cell_cache: dict[tuple[str, str], dict] = {}
+        cell_cache: dict[tuple[str, int, int], dict] = {}
         for d_slug in destino_slugs:
-            for b in buckets:
-                data = _compute_cell_data(
-                    slug, d_slug, b, fs_dir, lineups_dir, mars_dir,
+            for (_lbl, yr, mn) in months_calendar:
+                data = _compute_cell_data_monthly(
+                    slug, d_slug, yr, mn, fs_dir,
                     lu_df_by_slug[slug], exports_by_slug[slug], shares_by_slug[slug],
                 )
-                cell_cache[(d_slug, b)] = data
+                cell_cache[(d_slug, yr, mn)] = data
                 total_fs += data["fs_tn"]
                 total_lin_real += data["pipeline_real_tn"]
                 total_lin_proj += data["projected_tn"]
         total_lin_est = total_lin_real + total_lin_proj
 
-        # ── A Fijar (MAGYP): se distribuye pro-rata al peso de FS por celda ──
+        # ── A Fijar (MAGYP): TODO va al bucket de cosecha, ahora distribuido
+        # a nivel (mes × puerto) usando el peso del FS PH+Fij dentro del
+        # bucket de cosecha, solo en puertos de exportación.
         total_a_fijar = _load_a_fijar_kt(str(fs_dir), slug)  # tn
-        for key, data in cell_cache.items():
-            if total_fs > 0:
-                weight = data["fs_tn"] / total_fs
-                data["a_fijar_tn"] = total_a_fijar * weight
-            else:
-                data["a_fijar_tn"] = 0.0
-            # FS total = PH+Fij realizado + a_fijar (porción)
+        harvest_bucket = HARVEST_BUCKET_BY_SLUG.get(slug, "MAM")
+        harvest_months = BUCKET_MONTHS_BY_SLUG[slug].get(harvest_bucket, [])
+        total_fs_harvest_export = sum(
+            cell_cache[(d, y, m)]["fs_tn"]
+            for d in destino_slugs
+            for (y, m) in harvest_months
+            if (d, y, m) in cell_cache and cell_cache[(d, y, m)]["is_export"]
+        )
+        for data in cell_cache.values():
+            data["a_fijar_tn"] = 0.0
+        if total_fs_harvest_export > 0:
+            for d in destino_slugs:
+                for (y, m) in harvest_months:
+                    cell = cell_cache.get((d, y, m))
+                    if cell is None or not cell["is_export"]:
+                        continue
+                    weight = cell["fs_tn"] / total_fs_harvest_export
+                    cell["a_fijar_tn"] = total_a_fijar * weight
+        for data in cell_cache.values():
             data["fs_total_tn"] = data["fs_tn"] + data["a_fijar_tn"]
 
         # ── Header del cultivo + resumen + shares ──
@@ -471,18 +607,25 @@ def render_pos_fisica(app_all_dir: Path) -> None:
             unsafe_allow_html=True,
         )
 
-        # Posición REALIZADA = FS - Lineup Real (sin proyección, dónde estamos hoy)
-        total_pos_real = total_fs - total_lin_real
+        # FS físico TOTAL = PH + Fijado + A_Fijar. El A_Fijar es commitment
+        # físico — tonelada vendida con precio abierto — así que SIEMPRE entra
+        # en la posición física, tanto realizada como total.
+        total_fs_total = total_fs + total_a_fijar
+
+        # Posición REALIZADA = (FS PH+Fij + A_Fijar) − Exports Real
+        # (sin proyección de Lineups; "dónde estamos hoy" pero contemplando
+        # todo el commitment físico).
+        total_pos_real = total_fs_total - total_lin_real
         pos_real_color = "#1d6e51" if total_pos_real >= 0 else "#a32d2d"
         pos_real_bg = ("rgba(29,158,117,0.10)"
                        if total_pos_real >= 0 else "rgba(226,75,74,0.10)")
-        pos_real_label = "LONG (FS > EXP)" if total_pos_real > 0 else (
-            "SHORT (EXP > FS)" if total_pos_real < 0 else "FLAT")
+        pos_real_label = "LONG ((FS+AF) > EXP)" if total_pos_real > 0 else (
+            "SHORT (EXP > (FS+AF))" if total_pos_real < 0 else "FLAT")
 
-        # Posición TOTAL = (FS + A Fijar) − Exports Estimados
-        # Esta es la "verdadera" posición física del trade: todo lo comprometido
-        # físicamente (priced + open price) vs lo que vamos a embarcar.
-        total_fs_total = total_fs + total_a_fijar
+        # Posición TOTAL = (FS PH+Fij + A_Fijar) − Exports Estimados
+        # (con proyección MARS para meses sin xls). Esta es la posición física
+        # "forward looking" — todo lo comprometido físicamente vs todo lo que
+        # vamos a embarcar.
         total_pos = total_fs_total - total_lin_est
         pos_color = "#1d6e51" if total_pos >= 0 else "#a32d2d"
         pos_bg = ("rgba(29,158,117,0.10)"
@@ -511,19 +654,84 @@ def render_pos_fisica(app_all_dir: Path) -> None:
         else:
             pace_hint = "ya estás flat"
 
-        # Línea de resumen (7 cards):
-        # FS · ExpReal · PosReal · AFijar · ExpEst · PosTotal · Pace
-        sum_cols = st.columns(7)
+        # Stock-to-Usage en MESES, consumiendo el LONG contra los exports
+        # MARS MES A MES desde el mes SIGUIENTE al actual (ignorando meses
+        # pasados y el mes en curso, que ya están casi embarcados). Esto
+        # respeta la estacionalidad real de MARS (cosecha vs. valles) y mide
+        # "cuántos meses adelante me cubre el LONG físico".
+        exports_kt_slug = exports_by_slug[slug]
+        today_ym = (today_d.year, today_d.month)
+        ordered_months_exp = []
+        for (_lbl, yr, mn) in MONTHS_BY_SLUG[slug]:
+            # Saltar meses ya transcurridos y el mes en curso
+            if (yr, mn) <= today_ym:
+                continue
+            mars_key = f"{mn:02d}/{yr}"
+            exp_kt_v = exports_kt_slug.get(mars_key, 0)
+            exp_tn = float(exp_kt_v) * 1000
+            ordered_months_exp.append((yr, mn, exp_tn))
+
+        remaining_long = abs(total_pos_real)
+        months_covered = 0.0
+        total_exp_available = sum(e for _, _, e in ordered_months_exp)
+        for (_yr, _mn, exp_tn) in ordered_months_exp:
+            if remaining_long <= 0:
+                break
+            if exp_tn <= 0:
+                continue
+            if remaining_long >= exp_tn:
+                months_covered += 1.0
+                remaining_long -= exp_tn
+            else:
+                months_covered += remaining_long / exp_tn
+                remaining_long = 0
+        # Si todavía queda LONG después de TODOS los meses, marcamos overflow
+        overflow = remaining_long > 0
+        # SHORT: se invierte el signo (faltan meses para cerrar al ritmo prox)
+        if total_exp_available <= 0:
+            stu_months = None
+        else:
+            stu_months = months_covered if total_pos_real >= 0 else -months_covered
+
+        if stu_months is None:
+            stu_color = "#888"
+            stu_bg = "rgba(120,120,120,0.10)"
+            stu_label = "—"
+        elif stu_months > 0:
+            stu_color = "#1d6e51"
+            stu_bg = "rgba(29,158,117,0.10)"
+            stu_label = "LONG · stock cubre" + (" (campaña+)" if overflow else "")
+        elif stu_months < 0:
+            stu_color = "#a32d2d"
+            stu_bg = "rgba(226,75,74,0.10)"
+            stu_label = "SHORT · faltan"
+        else:
+            stu_color = "#444"
+            stu_bg = "rgba(120,120,120,0.10)"
+            stu_label = "FLAT"
+
+        # Línea de resumen (8 cards):
+        # FS PH+Fij · A Fijar · Exports Real · Pos Real · S/U · Exports Est · Pos Total · Pace
+        sum_cols = st.columns(8)
         sum_cols[0].markdown(
             f"<div style='text-align:center;padding:0.4rem;"
             f"background:rgba(29,158,117,0.10);border-radius:6px;'>"
             f"<div style='font-size:0.62rem;color:#666;letter-spacing:1px;'>"
-            f"FS REALIZADO</div>"
+            f"FS PH + FIJADO</div>"
             f"<div style='font-size:1.1rem;font-weight:700;color:#1d6e51;'>"
             f"{_fmt_tn(total_fs)} kt</div></div>",
             unsafe_allow_html=True,
         )
         sum_cols[1].markdown(
+            f"<div style='text-align:center;padding:0.4rem;"
+            f"background:rgba(245,124,0,0.10);border-radius:6px;'>"
+            f"<div style='font-size:0.62rem;color:#666;letter-spacing:1px;'>"
+            f"A FIJAR (MAGYP)</div>"
+            f"<div style='font-size:1.1rem;font-weight:700;color:#F57C00;'>"
+            f"{_fmt_tn(total_a_fijar)} kt</div></div>",
+            unsafe_allow_html=True,
+        )
+        sum_cols[2].markdown(
             f"<div style='text-align:center;padding:0.4rem;"
             f"background:rgba(46,125,50,0.10);border-radius:6px;'>"
             f"<div style='font-size:0.62rem;color:#666;letter-spacing:1px;'>"
@@ -534,26 +742,33 @@ def render_pos_fisica(app_all_dir: Path) -> None:
         )
         pos_real_kt = total_pos_real / 1000
         pos_real_str = f"{pos_real_kt:+,.0f}".replace(",", ".") + " kt"
-        sum_cols[2].markdown(
+        sum_cols[3].markdown(
             f"<div style='text-align:center;padding:0.4rem;"
             f"background:{pos_real_bg};border-radius:6px;'>"
             f"<div style='font-size:0.62rem;color:#666;letter-spacing:1px;'>"
-            f"POS. REALIZADA · {pos_real_label}</div>"
+            f"POS. REAL FÍSICA · {pos_real_label}</div>"
             f"<div style='font-size:1.1rem;font-weight:700;color:{pos_real_color};'>"
             f"{pos_real_str}</div></div>",
             unsafe_allow_html=True,
         )
-        # 4ta card NUEVA: A FIJAR (lo vendido al export con precio abierto)
-        sum_cols[3].markdown(
+        # Card de Stock to Usage (entre Pos. Real Física y Exports Estimados)
+        # Mostramos meses de stock con signo y 1 decimal usando coma decimal.
+        if stu_months is None:
+            stu_str = "—"
+        else:
+            stu_str = f"{abs(stu_months):.1f}".replace(".", ",") + " meses"
+            # Prefijo de signo explícito (más legible que "+1,2 meses")
+            # Solo agregamos "+" para LONG; SHORT lo decimos con el label.
+        sum_cols[4].markdown(
             f"<div style='text-align:center;padding:0.4rem;"
-            f"background:rgba(245,124,0,0.10);border-radius:6px;'>"
+            f"background:{stu_bg};border-radius:6px;'>"
             f"<div style='font-size:0.62rem;color:#666;letter-spacing:1px;'>"
-            f"A FIJAR (MAGYP)</div>"
-            f"<div style='font-size:1.1rem;font-weight:700;color:#F57C00;'>"
-            f"{_fmt_tn(total_a_fijar)} kt</div></div>",
+            f"STOCK TO USAGE · {stu_label}</div>"
+            f"<div style='font-size:1.1rem;font-weight:700;color:{stu_color};'>"
+            f"{stu_str}</div></div>",
             unsafe_allow_html=True,
         )
-        sum_cols[4].markdown(
+        sum_cols[5].markdown(
             f"<div style='text-align:center;padding:0.4rem;"
             f"background:rgba(21,101,192,0.10);border-radius:6px;'>"
             f"<div style='font-size:0.62rem;color:#666;letter-spacing:1px;'>"
@@ -564,7 +779,7 @@ def render_pos_fisica(app_all_dir: Path) -> None:
         )
         pos_kt = total_pos / 1000
         pos_str = f"{pos_kt:+,.0f}".replace(",", ".") + " kt"
-        sum_cols[5].markdown(
+        sum_cols[6].markdown(
             f"<div style='text-align:center;padding:0.4rem;"
             f"background:{pos_bg};border-radius:6px;'>"
             f"<div style='font-size:0.62rem;color:#666;letter-spacing:1px;'>"
@@ -573,13 +788,13 @@ def render_pos_fisica(app_all_dir: Path) -> None:
             f"{pos_str}</div></div>",
             unsafe_allow_html=True,
         )
-        # 7ma card: Pace para llegar a flat
+        # 8va card: Pace para llegar a flat
         if pace_to_flat is None:
             pace_str = "—"
         else:
             pace_kt = pace_to_flat / 1000
             pace_str = f"{pace_kt:,.0f}".replace(",", ".") + " kt/d"
-        sum_cols[6].markdown(
+        sum_cols[7].markdown(
             f"<div style='text-align:center;padding:0.4rem;"
             f"background:rgba(120,120,120,0.10);border-radius:6px;'>"
             f"<div style='font-size:0.62rem;color:#666;letter-spacing:1px;'>"
@@ -591,37 +806,51 @@ def render_pos_fisica(app_all_dir: Path) -> None:
             unsafe_allow_html=True,
         )
         st.caption(
-            f"Pos. Realizada = FS realizado − Exports Real (no incluye a_fijar). "
-            f"**Pos. Total = (FS + A Fijar pro-rata) − Exports Estimados** "
-            f"— posición verdadera del trade, todo lo comprometido físicamente "
-            f"vs lo que vamos a embarcar. Long (+) = sobre-vendido · Short (−) = al revés. "
+            f"**Pos. Real Física = (FS PH+Fij + A_Fijar) − Exports Real** — "
+            f"todo lo comprometido físicamente hoy vs lo ya embarcado. "
+            f"**Stock/Usage = meses de stock al ritmo MARS mensual** — "
+            f"se consume el LONG físico mes a mes con los exports MARS "
+            f"proyectados, arrancando desde el mes SIGUIENTE al actual "
+            f"(meses pasados ya están embarcados). Respeta la estacionalidad "
+            f"de MARS (cosecha vs. valles). LONG = el stock dura X meses · "
+            f"SHORT = faltan X meses para cerrar el gap. "
+            f"**Pos. Total = (FS PH+Fij + A_Fijar) − Exports Estimados** — "
+            f"misma posición pero con la proyección MARS de embarques futuros. "
+            f"Long (+) = sobre-vendido · Short (−) = al revés. "
             f"Pace a flat = |Pos. Total| / días hábiles hasta {campaign_end.strftime('%d %b %Y')}. "
-            f"A Fijar (MAGYP) se distribuye proporcional al peso de FS por celda. "
+            f"A_Fijar se asigna 100% al bucket de cosecha, distribuido entre "
+            f"puertos por el peso del FS PH+Fij. "
             f"Share del puerto: {share_str}"
         )
 
         # ── Construir tabla HTML con totales en kt + subtotales ──
-        # Precomputar subtotales por destino (filas) y por bucket (columnas)
-        row_totals = {}   # d_slug → {fs, real, proj}
-        col_totals = {}   # bucket → {fs, real, proj}
-        grand = {"fs": 0, "real": 0, "proj": 0}
+        # Schema nuevo: rows = meses calendario, cols = 4 puertos + Total.
+        # Precomputar subtotales por MES (filas) y por PUERTO (cols).
+        # Usamos fs_total_tn (FS PH+Fij + a_fijar pro-rata) para que cierren
+        # con las cards de arriba.
+        row_totals_m = {}   # (yr, mn) → {fs, real, proj}
+        col_totals_d = {}   # d_slug → {fs, real, proj, any_export}
+        grand = {"fs": 0.0, "real": 0, "proj": 0}
         for d_slug in destino_slugs:
-            row_totals[d_slug] = {"fs": 0, "real": 0, "proj": 0,
-                                   "any_export": False}
-            for b in buckets:
-                data = cell_cache[(d_slug, b)]
-                row_totals[d_slug]["fs"]   += data["fs_tn"]
-                row_totals[d_slug]["real"] += data["pipeline_real_tn"]
-                row_totals[d_slug]["proj"] += data["projected_tn"]
-                row_totals[d_slug]["any_export"] |= data["is_export"]
-                col_totals.setdefault(b, {"fs": 0, "real": 0, "proj": 0})
-                col_totals[b]["fs"]   += data["fs_tn"]
-                col_totals[b]["real"] += data["pipeline_real_tn"]
-                col_totals[b]["proj"] += data["projected_tn"]
-        for b in buckets:
-            grand["fs"]   += col_totals[b]["fs"]
-            grand["real"] += col_totals[b]["real"]
-            grand["proj"] += col_totals[b]["proj"]
+            col_totals_d[d_slug] = {"fs": 0.0, "real": 0, "proj": 0,
+                                     "any_export": False}
+        for (_lbl, yr, mn) in months_calendar:
+            row_totals_m[(yr, mn)] = {"fs": 0.0, "real": 0, "proj": 0,
+                                       "any_export": False}
+            for d_slug in destino_slugs:
+                data = cell_cache[(d_slug, yr, mn)]
+                fs_eff = data.get("fs_total_tn", data["fs_tn"])
+                row_totals_m[(yr, mn)]["fs"]   += fs_eff
+                row_totals_m[(yr, mn)]["real"] += data["pipeline_real_tn"]
+                row_totals_m[(yr, mn)]["proj"] += data["projected_tn"]
+                row_totals_m[(yr, mn)]["any_export"] |= data["is_export"]
+                col_totals_d[d_slug]["fs"]   += fs_eff
+                col_totals_d[d_slug]["real"] += data["pipeline_real_tn"]
+                col_totals_d[d_slug]["proj"] += data["projected_tn"]
+                col_totals_d[d_slug]["any_export"] |= data["is_export"]
+                grand["fs"]   += fs_eff
+                grand["real"] += data["pipeline_real_tn"]
+                grand["proj"] += data["projected_tn"]
 
         def _subtotal_cell_html(fs_tn, lin_real_tn, proj_tn, is_export_total: bool,
                                 biz_left: int = 0):
@@ -697,6 +926,10 @@ def render_pos_fisica(app_all_dir: Path) -> None:
                 "</div>"
             )
 
+        # ── HTML del heatmap: rows = meses, cols = 4 puertos + Total ─────
+        # Cada celda: 2x2 grid con FS | EXPORTS | POS | PACE.
+        # PACE de cada celda usa los días hábiles desde HOY hasta el FIN del
+        # mes calendario (vencimiento del delivery).
         html = [
             "<table style='width:100%;border-collapse:collapse;"
             "font-size:0.78rem;margin-bottom:0.5rem;'>"
@@ -704,86 +937,141 @@ def render_pos_fisica(app_all_dir: Path) -> None:
         html.append(
             "<thead><tr>"
             "<th style='text-align:center;padding:6px 8px;color:#666;"
-            "border-bottom:1px solid #ddd;'>Destino \\ Bucket</th>"
+            "border-bottom:1px solid #ddd;'>Mes \\ Puerto</th>"
         )
-        for b in buckets:
+        # Total como primera columna (antes de los puertos)
+        html.append(
+            "<th style='text-align:center;padding:6px 8px;color:#222;"
+            "border-bottom:1px solid #ddd;background:rgba(0,0,0,0.04);"
+            "border-right:2px solid rgba(0,0,0,0.08);'>"
+            "<div style='font-weight:700;'>Total</div>"
+            "<div style='font-size:0.7rem;font-weight:400;color:#999;'>"
+            "todos los puertos</div></th>"
+        )
+        for d_slug in destino_slugs:
             html.append(
                 f"<th style='text-align:center;padding:6px 8px;color:#444;"
                 f"border-bottom:1px solid #ddd;'>"
-                f"<div style='font-weight:600;'>{b}</div>"
-                f"<div style='font-size:0.7rem;font-weight:400;color:#999;'>"
-                f"{BUCKET_LABELS.get(b, '')}</div>"
+                f"<div style='font-weight:600;'>{DESTINOS[d_slug]['label']}</div>"
                 f"</th>"
             )
-        # Header del subtotal por fila (columna Total a la derecha)
-        html.append(
-            "<th style='text-align:center;padding:6px 8px;color:#222;"
-            "border-bottom:1px solid #ddd;background:rgba(0,0,0,0.04);'>"
-            "<div style='font-weight:700;'>Total</div>"
-            "<div style='font-size:0.7rem;font-weight:400;color:#999;'>"
-            "todos los buckets</div></th>"
-        )
         html.append("</tr></thead><tbody>")
 
-        # Una fila por destino
-        for d_slug in destino_slugs:
-            d_lbl = DESTINOS[d_slug]["label"]
-            html.append(
-                f"<tr><td style='padding:6px 8px;font-weight:600;color:#333;"
-                f"text-align:center;border-bottom:1px solid #eee;'>{d_lbl}</td>"
+        # Para mostrar el bucket en el label del mes (info de delivery)
+        month_to_bucket = BUCKETS_BY_SLUG.get(slug, {})
+
+        # Una fila por mes calendario
+        # En modo "Acumulada" llevamos un running total acumulando meses
+        # hacia adelante, tanto por puerto como para el Total del mes.
+        cum_by_port: dict[str, dict] = {
+            d: {"fs": 0.0, "lin": 0.0, "has_proj": False}
+            for d in destino_slugs
+        }
+        cum_row_total = {"fs": 0.0, "real": 0, "proj": 0, "any_export": False}
+        for (mlbl, yr, mn) in months_calendar:
+            bucket_of_month = month_to_bucket.get(mn, "")
+            # Label de la fila: "Mar 26 · MAM"
+            month_short = f"{_MONTH_NAMES[mn][:3]} {str(yr)[-2:]}"
+            row_label_html = (
+                f"<div style='font-weight:600;color:#333;'>{month_short}</div>"
+                f"<div style='font-size:0.65rem;color:#999;font-weight:500;'>"
+                f"{bucket_of_month}</div>"
             )
-            for b in buckets:
-                data = cell_cache[(d_slug, b)]
+            html.append(
+                f"<tr><td style='padding:6px 8px;text-align:center;"
+                f"border-bottom:1px solid #eee;'>{row_label_html}</td>"
+            )
+
+            # Días hábiles desde hoy al fin de este mes (para PACE)
+            last_day = monthrange(yr, mn)[1]
+            end_of_month = date(yr, mn, last_day)
+            biz_left_mn = _biz_days_to(end_of_month)
+            days_chip = (
+                f"<div style='font-size:0.5rem;color:#bbb;line-height:1;'>"
+                f"{biz_left_mn}d</div>" if biz_left_mn > 0 else ""
+            )
+
+            # ── Subtotal del mes (PRIMERA columna después del label) ──
+            rt = row_totals_m[(yr, mn)]
+            cum_row_total["fs"]   += rt["fs"]
+            cum_row_total["real"] += rt["real"]
+            cum_row_total["proj"] += rt["proj"]
+            cum_row_total["any_export"] |= rt["any_export"]
+            if is_acumulada:
+                tot_fs = cum_row_total["fs"]
+                tot_real = cum_row_total["real"]
+                tot_proj = cum_row_total["proj"]
+                tot_any_export = cum_row_total["any_export"]
+            else:
+                tot_fs = rt["fs"]
+                tot_real = rt["real"]
+                tot_proj = rt["proj"]
+                tot_any_export = rt["any_export"]
+            html.append(
+                f"<td style='padding:6px 4px;background:rgba(0,0,0,0.04);"
+                f"border-bottom:1px solid #eee;text-align:center;"
+                f"border-right:2px solid rgba(0,0,0,0.08);'>"
+                f"{_subtotal_cell_html(tot_fs, tot_real, tot_proj, tot_any_export, biz_left_mn)}"
+                f"</td>"
+            )
+
+            for d_slug in destino_slugs:
+                data = cell_cache[(d_slug, yr, mn)]
                 is_interior = not data["is_export"]
                 if is_interior:
-                    # Fondo gris neutro: no aplica el concepto de cobertura
                     bg = "rgba(0,0,0,0.025)"
                 else:
                     bg, _fg = _coverage_color(data["coverage_pct"])
-                asterisk = "*" if data["has_projection"] else ""
 
-                # POS = (FS realizado + a_fijar pro-rata) − Exports estimados
-                fs_with_afij = data.get("fs_total_tn", data["fs_tn"])
-                pos = fs_with_afij - data["pipeline_total_tn"]
+                # FS con a_fijar pro-rata + Exports del mes
+                fs_mes = data.get("fs_total_tn", data["fs_tn"])
+                lin_mes = data["pipeline_total_tn"]
+                mes_has_proj = data["has_projection"]
+
+                # Update running totals por puerto
+                cum_by_port[d_slug]["fs"] += fs_mes
+                cum_by_port[d_slug]["lin"] += lin_mes
+                cum_by_port[d_slug]["has_proj"] = (
+                    cum_by_port[d_slug]["has_proj"] or mes_has_proj
+                )
+
+                if is_acumulada:
+                    fs_show = cum_by_port[d_slug]["fs"]
+                    lin_show = cum_by_port[d_slug]["lin"]
+                    pos = fs_show - lin_show
+                    cell_has_proj = cum_by_port[d_slug]["has_proj"]
+                else:
+                    fs_show = fs_mes
+                    lin_show = lin_mes
+                    pos = fs_mes - lin_mes
+                    cell_has_proj = mes_has_proj
+
+                asterisk = "*" if cell_has_proj else ""
                 pos_c = "#1d6e51" if pos >= 0 else "#a32d2d"
                 pos_kt_cell = pos / 1000
                 pos_cell_str = f"{pos_kt_cell:+,.0f}".replace(",", ".")
 
-                # Pace = -pos / biz_days_to_bucket_end
-                # Convención: si FS < Lineup (pos<0, SHORT) → pace>0
-                # = lo que falta sumar por día para cerrar el gap.
-                end_bk = _bucket_end_date(slug, b)
-                biz_left_bk = _biz_days_to(end_bk) if end_bk else 0
-                if biz_left_bk > 0:
-                    pace_cell = -pos / biz_left_bk  # tn/d, signed
+                if biz_left_mn > 0:
+                    pace_cell = -pos / biz_left_mn
                     pace_kt_cell = pace_cell / 1000
                     pace_cell_str = f"{pace_kt_cell:+,.0f}".replace(",", ".")
                 else:
                     pace_cell_str = "—"
-
-                # Color del Pace: con la convención invertida del signo, un
-                # pace POSITIVO = SHORT = falta sumar (rojo); NEGATIVO = LONG
-                # = sobra (verde). Es el INVERSO del color de POS.
                 pace_c = "#a32d2d" if pos < 0 else ("#1d6e51" if pos > 0 else "#888")
-                days_chip = (
-                    f"<div style='font-size:0.5rem;color:#bbb;line-height:1;'>"
-                    f"{biz_left_bk}d</div>" if biz_left_bk > 0 else ""
-                )
 
-                # Lineup / POS / Pace según sea Interior o export
                 if is_interior:
                     lineup_value_html = (
                         "<div style='font-weight:700;font-size:0.82rem;color:#bbb;'>—</div>"
                     )
                     pos_value_html = (
                         f"<div style='font-weight:700;font-size:0.82rem;color:#1d6e51;'>"
-                        f"{_fmt_tn(data['fs_tn'])} <span style='font-size:0.58rem;color:#999;font-weight:500;'>kt</span></div>"
+                        f"{_fmt_tn(fs_show)} <span style='font-size:0.58rem;color:#999;font-weight:500;'>kt</span></div>"
                     )
                     pace_value_html = "<div style='font-weight:700;font-size:0.82rem;color:#bbb;'>—</div>"
                 else:
                     lineup_value_html = (
                         f"<div style='font-weight:700;font-size:0.82rem;color:#1565C0;'>"
-                        f"{_fmt_tn(data['pipeline_total_tn'])} <span style='font-size:0.58rem;color:#999;font-weight:500;'>kt</span></div>"
+                        f"{_fmt_tn(lin_show)} <span style='font-size:0.58rem;color:#999;font-weight:500;'>kt</span></div>"
                     )
                     pos_value_html = (
                         f"<div style='font-weight:700;font-size:0.82rem;color:{pos_c};'>"
@@ -795,72 +1083,57 @@ def render_pos_fisica(app_all_dir: Path) -> None:
                         f"{days_chip}"
                     )
 
-                # 2×2 grid: FS | LINEUP arriba ; POS | PACE abajo
                 html.append(
                     f"<td style='padding:6px 4px;background:{bg};"
                     f"border-bottom:1px solid #eee;text-align:center;'>"
                     f"<div style='display:grid;grid-template-columns:1fr 1fr;"
                     f"gap:4px 6px;text-align:center;'>"
-                    # Top-left: FS
                     f"<div>"
                     f"<div style='font-size:0.55rem;color:#888;letter-spacing:0.5px;'>FS</div>"
                     f"<div style='font-weight:700;font-size:0.82rem;color:#1d6e51;'>"
-                    f"{_fmt_tn(data['fs_tn'])} <span style='font-size:0.58rem;color:#999;font-weight:500;'>kt</span></div>"
+                    f"{_fmt_tn(fs_show)} <span style='font-size:0.58rem;color:#999;font-weight:500;'>kt</span></div>"
                     f"</div>"
-                    # Top-right: LINEUP
                     f"<div>"
                     f"<div style='font-size:0.55rem;color:#888;letter-spacing:0.5px;'>EXPORTS{asterisk}</div>"
                     f"{lineup_value_html}"
                     f"</div>"
-                    # Bottom-left: POS
                     f"<div style='border-top:1px solid rgba(0,0,0,0.06);padding-top:3px;'>"
                     f"<div style='font-size:0.55rem;color:#888;letter-spacing:0.5px;'>POS</div>"
                     f"{pos_value_html}"
                     f"</div>"
-                    # Bottom-right: PACE
                     f"<div style='border-top:1px solid rgba(0,0,0,0.06);padding-top:3px;'>"
                     f"<div style='font-size:0.55rem;color:#888;letter-spacing:0.5px;'>PACE</div>"
                     f"{pace_value_html}"
                     f"</div>"
                     f"</div></td>"
                 )
-            # Subtotal de fila (todos los buckets para este destino)
-            rt = row_totals[d_slug]
-            html.append(
-                f"<td style='padding:6px 4px;background:rgba(0,0,0,0.04);"
-                f"border-bottom:1px solid #eee;text-align:center;"
-                f"border-left:2px solid rgba(0,0,0,0.08);'>"
-                f"{_subtotal_cell_html(rt['fs'], rt['real'], rt['proj'], rt['any_export'], biz_days_remaining)}"
-                f"</td>"
-            )
             html.append("</tr>")
 
-        # Fila de subtotales por bucket
+        # Fila de subtotales por puerto (suma de todos los meses).
+        # El primer TD después del label es el GRAND TOTAL (esquina), después
+        # vienen los 4 puertos en el mismo orden que el header.
         html.append(
             "<tr style='background:rgba(0,0,0,0.04);"
             "border-top:2px solid rgba(0,0,0,0.08);'>"
             "<td style='padding:6px 8px;font-weight:700;color:#222;"
             "text-align:center;'>Total</td>"
         )
-        for b in buckets:
-            ct = col_totals[b]
-            # Para el subtotal por bucket, usamos los días hábiles hasta el
-            # cierre del bucket específico (no la campaña completa).
-            end_bk_col = _bucket_end_date(slug, b)
-            biz_left_col = _biz_days_to(end_bk_col) if end_bk_col else 0
-            html.append(
-                f"<td style='padding:6px 4px;text-align:center;'>"
-                f"{_subtotal_cell_html(ct['fs'], ct['real'], ct['proj'], True, biz_left_col)}"
-                f"</td>"
-            )
-        # Grand total (esquina abajo-derecha)
+        # Grand total como primera columna después del label (alineado con el
+        # header de la columna Total que también está acá).
         html.append(
             f"<td style='padding:6px 4px;text-align:center;"
             f"background:rgba(0,0,0,0.07);"
-            f"border-left:2px solid rgba(0,0,0,0.08);'>"
+            f"border-right:2px solid rgba(0,0,0,0.08);'>"
             f"{_subtotal_cell_html(grand['fs'], grand['real'], grand['proj'], True, biz_days_remaining)}"
             f"</td>"
         )
+        for d_slug in destino_slugs:
+            ct = col_totals_d[d_slug]
+            html.append(
+                f"<td style='padding:6px 4px;text-align:center;'>"
+                f"{_subtotal_cell_html(ct['fs'], ct['real'], ct['proj'], ct['any_export'], biz_days_remaining)}"
+                f"</td>"
+            )
         html.append("</tr>")
         html.append("</tbody></table>")
 
@@ -869,8 +1142,8 @@ def render_pos_fisica(app_all_dir: Path) -> None:
     st.divider()
     st.caption(
         "**Cobertura = Pipeline / FS × 100**. Pipeline incluye Lineups reales "
-        "(Mar/Apr/May 26 hoy) + proyección de meses faltantes (MARS Exports × "
-        "share del puerto). Buckets de delivery: maíz/sorgo MAM=Mar-May, "
-        "JJ=Jun-Jul, AS=Aug-Sep, OND=Oct-Dec, JF=Jan-Feb. "
-        "Trigo/cebada NDJ=Nov-Jan, FMA=Feb-Apr, MJJ=May-Jul, ASO=Aug-Oct."
+        "(meses con xls cargado) + proyección de meses faltantes (MARS Exports "
+        "× share del puerto). Filas = meses calendario de delivery; columnas "
+        "= 4 puertos (Up River, Bahía, Necochea, Interior). "
+        "PACE por celda = días hábiles desde hoy hasta el fin del mes."
     )
