@@ -1566,9 +1566,13 @@ with tab_current:
     k4.metric("Month target",
               fmt_tn(snap["target_may_tn"]),
               f"{target_may:,} kt".replace(",", "."))
-    k5.metric("vs Ideal Pace",
-              fmt_tn(abs(snap["delta_vs_pace"])),
-              "↑ ahead" if snap["delta_vs_pace"] >= 0 else "↓ behind")
+    # vs Target = Current (Sailed + Roads + Lineup) vs Month Target.
+    # Mide cuán por encima/debajo del target estamos contando TODO lo
+    # comprometido (incluido lo que todavía no zarpó pero ya está en cola).
+    _vs_target = snap["cur_pipeline_total"] - snap["target_may_tn"]
+    k5.metric("vs Target",
+              fmt_tn(abs(_vs_target)),
+              "↑ ahead" if _vs_target >= 0 else "↓ behind")
 
     st.divider()
 
@@ -1891,11 +1895,18 @@ with tab_ship:
     sm["MONTH_TOTAL"] = sm["MONTH"].map(total_by_month)
     sm["SHARE"] = 100 * sm["TONS"] / sm["MONTH_TOTAL"]
 
+    # Forzar orden cronológico (groupby + Altair sort=lista no siempre lo respeta)
+    _month_ord = {lbl: i for i, lbl in enumerate(CAMPAIGN_LABELS)}
+    sm["_MONTH_ORD"] = sm["MONTH"].map(_month_ord)
+    sm = sm.sort_values("_MONTH_ORD")
+
     line_order = sorted(top_shippers,
                         key=lambda s: -cur_sh.get(s, 0))
 
     base = alt.Chart(sm).encode(
-        x=alt.X("MONTH:N", sort=months_present, title="",
+        x=alt.X("MONTH:N",
+                sort=alt.SortField(field="_MONTH_ORD", order="ascending"),
+                title="",
                 axis=alt.Axis(labelAngle=0, labelFontSize=12)),
         y=alt.Y("SHARE:Q", title="Monthly share (%)",
                 axis=alt.Axis(format=".0f")),
@@ -1912,14 +1923,16 @@ with tab_ship:
     lines  = base.mark_line(strokeWidth=2.8)
     points = base.mark_point(filled=True, size=70)
 
-    # Etiquetas al final de cada línea
+    # Etiquetas al final de cada línea — usar el último mes cronológico
     last_m = months_present[-1] if months_present else None
     labels_df = sm[sm["MONTH"] == last_m].copy() if last_m else sm.iloc[:0]
     end_labels = (alt.Chart(labels_df)
                   .mark_text(align="left", baseline="middle", dx=6,
                              fontSize=11, fontWeight="bold")
                   .encode(
-                      x=alt.X("MONTH:N", sort=months_present),
+                      x=alt.X("MONTH:N",
+                              sort=alt.SortField(field="_MONTH_ORD",
+                                                  order="ascending")),
                       y="SHARE:Q",
                       text="SHIPPER:N",
                       color=alt.Color("SHIPPER:N", sort=line_order,

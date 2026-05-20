@@ -1147,3 +1147,181 @@ def render_pos_fisica(app_all_dir: Path) -> None:
         "= 4 puertos (Up River, Bahía, Necochea, Interior). "
         "PACE por celda = días hábiles desde hoy hasta el fin del mes."
     )
+
+    # ──────────────────────────────────────────────────────────────────────
+    # 🏛 Pos. Física LDC · data interna manual
+    # Layout consolidado: 6 items son COLUMNAS globales agrupadas por
+    # puerto. Cada fila es (mes × cultivo). Item label se muestra UNA vez
+    # en el header, cultivo se escribe en la primera col de cada fila.
+    # ──────────────────────────────────────────────────────────────────────
+    st.divider()
+    st.markdown("## 🏛 Pos. Física LDC")
+    st.caption(
+        "Datos internos de LDC (manual). Items (BP, FV, Stk, OV, OM, FC) en "
+        "columnas; meses + cultivos en filas. Cada bloque de 6 columnas "
+        "representa un puerto. Editá los valores en `pos_fisica_ldc_data.py`."
+    )
+    try:
+        import sys as _sys_ldc
+        if str(app_all_dir) not in _sys_ldc.path:
+            _sys_ldc.path.insert(0, str(app_all_dir))
+        from pos_fisica_ldc_data import (
+            LDC_FIELDS as _LDC_FIELDS,
+            get_ldc_cell as _get_ldc_cell,
+            get_ldc_total_month as _get_ldc_total,
+        )
+    except Exception as e:
+        st.error(f"No pude cargar pos_fisica_ldc_data.py: {e}")
+        return
+
+    # Abreviaciones cortas para los 6 items (cols del mini-bloque)
+    _LDC_ITEM_ABBR = {
+        "business_plan":  "BP",
+        "faltan_vender":  "FV",
+        "stocks":         "Stk",
+        "open_vencido":   "OV",
+        "open_mes":       "OM",
+        "falta_comprar":  "FC",
+    }
+    _LDC_ITEM_FULL_LABELS = [
+        ("BP",  "Business Plan",  "#1d6e51"),
+        ("FV",  "Faltan vender",  "#F57C00"),
+        ("Stk", "Stocks",         "#1565C0"),
+        ("OV",  "Open vencido",   "#a32d2d"),
+        ("OM",  "Open del mes",   "#7B3FB8"),
+        ("FC",  "Falta comprar",  "#444444"),
+    ]
+    _LDC_ITEM_KEYS = [k for k, _, _ in _LDC_FIELDS]
+    _LDC_ITEM_COLORS = {k: c for k, _, c in _LDC_FIELDS}
+
+    _LDC_PORTS = [
+        (None,       "Total",        "rgba(0,0,0,0.04)"),
+        ("uprivers", "Up River",     "transparent"),
+        ("bahia",    "Bahía Blanca", "transparent"),
+        ("necochea", "Necochea",     "transparent"),
+    ]
+    _LDC_CROPS = [
+        ("maiz",   "🌽 Maíz"),
+        ("trigo",  "🌾 Trigo"),
+        ("sorgo",  "🌱 Sorgo"),
+        ("cebada", "🌿 Cebada"),
+    ]
+
+    def _fmt_ldc(v):
+        if v is None or v == 0:
+            return "—"
+        try:
+            return f"{int(round(float(v))):,}".replace(",", ".")
+        except Exception:
+            return str(v)
+
+    # Leyenda de abreviaciones
+    _legend_html = " · ".join(
+        f"<span style='color:{c};font-weight:600'>{abbr}</span> "
+        f"<span style='color:#666'>{full}</span>"
+        for abbr, full, c in _LDC_ITEM_FULL_LABELS
+    )
+    st.markdown(
+        f"<div style='font-size:0.72rem;color:#888;margin-bottom:0.4rem'>"
+        f"<b>Items:</b> {_legend_html}</div>",
+        unsafe_allow_html=True,
+    )
+
+    months_calendar = MONTHS_BY_SLUG["maiz"]
+
+    # Construir tabla HTML
+    html = ["<table style='width:100%;border-collapse:collapse;"
+            "font-size:0.7rem;margin-bottom:0.5rem;table-layout:auto;'>"]
+
+    # ── Header de 2 niveles ──
+    # Nivel 1: puerto (Mes | Cultivo | Total: 6 cols | UpRiver: 6 cols | Bahía: 6 cols | Necochea: 6 cols)
+    html.append("<thead>")
+    html.append("<tr>")
+    html.append("<th rowspan=2 style='text-align:center;padding:6px 4px;"
+                "color:#666;border-bottom:1px solid #ddd;"
+                "vertical-align:middle;'>Mes</th>")
+    html.append("<th rowspan=2 style='text-align:center;padding:6px 4px;"
+                "color:#666;border-bottom:1px solid #ddd;"
+                "vertical-align:middle;'>Cultivo</th>")
+    for p_slug, p_lbl, p_bg in _LDC_PORTS:
+        html.append(
+            f"<th colspan=6 style='text-align:center;padding:4px 4px;"
+            f"color:#222;border-bottom:1px solid #ccc;background:{p_bg};"
+            f"font-weight:700;border-left:2px solid rgba(0,0,0,0.08);'>"
+            f"{p_lbl}</th>"
+        )
+    html.append("</tr>")
+    # Nivel 2: items (BP | FV | Stk | OV | OM | FC) × 4 puertos
+    html.append("<tr>")
+    for p_slug, _, p_bg in _LDC_PORTS:
+        for i, (abbr, _, color) in enumerate(_LDC_ITEM_FULL_LABELS):
+            border_left = ("border-left:2px solid rgba(0,0,0,0.08);"
+                            if i == 0 else "")
+            html.append(
+                f"<th style='text-align:center;padding:3px 3px;"
+                f"font-size:0.6rem;color:{color};background:{p_bg};"
+                f"border-bottom:1px solid #ddd;{border_left}'>"
+                f"{abbr}</th>"
+            )
+    html.append("</tr>")
+    html.append("</thead><tbody>")
+
+    # ── Body: una fila por (mes, cultivo) ──
+    for (mlbl, yr, mn) in months_calendar:
+        month_short = f"{_MONTH_NAMES[mn][:3]} {str(yr)[-2:]}"
+        for crop_idx, (crop_slug, crop_lbl) in enumerate(_LDC_CROPS):
+            # Mes: solo en la primera fila del bloque (rowspan = N cultivos)
+            mes_cell = ""
+            if crop_idx == 0:
+                mes_cell = (
+                    f"<td rowspan={len(_LDC_CROPS)} "
+                    f"style='padding:4px 4px;text-align:center;"
+                    f"border-bottom:1px solid #ddd;font-weight:700;"
+                    f"color:#333;vertical-align:middle;"
+                    f"background:rgba(0,0,0,0.02);font-size:0.78rem;'>"
+                    f"{month_short}</td>"
+                )
+            html.append(f"<tr>{mes_cell}")
+            # Cultivo
+            border_bottom = ("1px solid #ddd" if crop_idx == len(_LDC_CROPS) - 1
+                              else "1px solid #f0f0f0")
+            html.append(
+                f"<td style='padding:3px 6px;text-align:left;"
+                f"border-bottom:{border_bottom};font-size:0.7rem;"
+                f"font-weight:600;color:#333;white-space:nowrap;'>"
+                f"{crop_lbl}</td>"
+            )
+            # Por puerto: 6 valores
+            for p_slug, _, p_bg in _LDC_PORTS:
+                if p_slug is None:
+                    cell = _get_ldc_total(crop_slug, yr, mn)
+                else:
+                    cell = _get_ldc_cell(crop_slug, yr, mn, p_slug)
+                for i, key in enumerate(_LDC_ITEM_KEYS):
+                    v = cell.get(key, 0)
+                    color = _LDC_ITEM_COLORS[key]
+                    val_str = _fmt_ldc(v)
+                    border_left = ("border-left:2px solid rgba(0,0,0,0.08);"
+                                    if i == 0 else "")
+                    style = (
+                        f"text-align:right;padding:2px 4px;"
+                        f"border-bottom:{border_bottom};background:{p_bg};"
+                        f"font-size:0.65rem;color:{color};"
+                        f"font-weight:600;white-space:nowrap;{border_left}"
+                    )
+                    if val_str == "—":
+                        style = style.replace(f"color:{color}", "color:#ccc"
+                                              ).replace("font-weight:600",
+                                                          "font-weight:400")
+                    html.append(f"<td style='{style}'>{val_str}</td>")
+            html.append("</tr>")
+    html.append("</tbody></table>")
+    st.markdown("".join(html), unsafe_allow_html=True)
+
+    st.caption(
+        "Para llenar la tabla, editá `pos_fisica_ldc_data.py` agregando "
+        "entradas tipo `LDC_DATA['maiz']['2026_05']['uprivers'] = "
+        "{'business_plan': 200_000, 'faltan_vender': 35_000, ...}`. "
+        "Las celdas vacías muestran —. La columna Total es la suma de los "
+        "3 puertos export."
+    )
