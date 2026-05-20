@@ -518,6 +518,51 @@ def construir_matriz_solo_sio(ops: list[Operacion], hoy: date, cultivo_cfg: dict
     return filas
 
 
+def construir_sio_diario_ph_fij(ops: list[Operacion],
+                                  cultivo_cfg: dict) -> list[dict]:
+    """CSV chico con totales diarios separando Precio Hecho de Fijaciones.
+
+    Para cada `fecha_conc`, suma TN de operaciones cuyo `tipo` empieza con
+    PRECIO HECHO (PH) o FIJAR PRECIO (FP). Solo cuenta operaciones cuya
+    `fecha_desde` cae dentro de algún mes de delivery válido (mismo filtro
+    que la matriz). Devuelve filas {fecha, ph_tn, fij_tn}, ordenadas por
+    fecha. Usado por el tab Monthly Pace para mostrar el SIO post-cutoff
+    sin tener que cargar el sio_historico.csv completo (2 GB)."""
+    out: dict[date, dict] = {}
+    for o in ops:
+        if o.fecha_conc is None:
+            continue
+        # Filtro: solo ops cuya entrega cae dentro de un mes válido del cultivo
+        if mes_de_entrega(o.fecha_desde, cultivo_cfg) is None:
+            continue
+        t_norm = o.tipo.upper().replace("Á", "A").replace("É", "E")
+        is_ph = ("PRECIO HECHO" in t_norm) or (t_norm == "PH")
+        is_fp = ("FIJAR PRECIO" in t_norm) or (t_norm == "FP")
+        if not (is_ph or is_fp):
+            continue
+        entry = out.setdefault(o.fecha_conc, {"ph_tn": 0.0, "fij_tn": 0.0})
+        if is_ph:
+            entry["ph_tn"] += o.cant_tn
+        else:
+            entry["fij_tn"] += o.cant_tn
+    return [
+        {"fecha": d.isoformat(),
+         "ph_tn": int(round(v["ph_tn"])),
+         "fij_tn": int(round(v["fij_tn"]))}
+        for d, v in sorted(out.items())
+    ]
+
+
+def escribir_sio_diario_ph_fij(filas: list[dict], path: Path) -> None:
+    cols = ["fecha", "ph_tn", "fij_tn"]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=cols)
+        w.writeheader()
+        for fila in filas:
+            w.writerow({k: fila.get(k, 0) for k in cols})
+
+
 def escribir_destinos(filas: list[dict], path: Path) -> None:
     from destinos import DESTINOS
     cols = ["label", *DESTINOS, "total"]
@@ -593,6 +638,14 @@ def main(argv: list[str] | None = None) -> int:
     if cfg["matriz_csv"] == "matriz_maiz.csv":
         escribir_matriz(filas, DATA_DIR / "matriz_fs.csv", meses_cols(cfg))
         _log("Escrito: data/matriz_fs.csv (alias legacy)")
+
+    # CSV chico con totales diarios PH/Fij separados (el tab Monthly Pace
+    # lo lee directo, sin tener que cargar el sio_historico.csv completo).
+    slug = cfg["matriz_csv"].replace("matriz_", "").replace(".csv", "")
+    ph_fij_diario_path = DATA_DIR / f"sio_diario_ph_fij_{slug}.csv"
+    filas_ph_fij = construir_sio_diario_ph_fij(ops, cfg)
+    escribir_sio_diario_ph_fij(filas_ph_fij, ph_fij_diario_path)
+    _log(f"Escrito: {ph_fij_diario_path}  ({len(filas_ph_fij)} días)")
 
     # CSV paralelo: desglose por destino (Up River / Bahía / Necochea / Interior)
     filas_dest = construir_destinos(ops, cfg)

@@ -31,7 +31,7 @@ help:
 	@echo "    make run               ── Streamlit local (http://localhost:8501)"
 	@echo "    make ngrok             ── Streamlit + tunnel ngrok (URL pública)"
 	@echo ""
-	@echo "  Refrescar precios (delegan a fs_maiz/):"
+	@echo "  Refrescar inputs (delegan a fs_maiz/):"
 	@echo "    make daily             ── FS completo: SIO + MAGYP + matrices + precios (~5 min)"
 	@echo "    make daily-full        ── Igual pero con backfill 180 días de SIO (~30 min)"
 	@echo "    make precios           ── Pizarra + MAT + CBOT + MINAGRI desde boletín BCR (~10s)"
@@ -40,8 +40,8 @@ help:
 	@echo "    make minagri           ── Chequea si MAGYP publicó XLSX nuevo"
 	@echo ""
 	@echo "  Procesar Recap LDC:"
-	@echo "    make recap CONSO=<archivo>"
-	@echo "      ej: make recap CONSO=RecapConsolidadoFOB_15-05-2026.xls"
+	@echo "    make recap             ── Auto-detecta el último RecapConsolidadoFOB*.xls"
+	@echo "    make recap CONSO=...   ── Procesa un xls específico"
 	@echo ""
 	@echo "  Utilidades:"
 	@echo "    make status            ── Última actualización de cada fuente"
@@ -70,6 +70,7 @@ daily-full:
 precios:
 	@cd "$(FS_MAIZ_DIR)" && $(MAKE) precios
 
+# 10:30 — Pizarra CAC intra-día
 pizarra:
 	@cd "$(FS_MAIZ_DIR)" && $(MAKE) pizarra
 
@@ -79,35 +80,33 @@ sio:
 minagri:
 	@cd "$(FS_MAIZ_DIR)" && $(MAKE) minagri
 
-# ── Recap LDC (delega a 5. Recap Totalizado/update_totalizado.py) ────────────
+# ── Recap LDC ────────────────────────────────────────────────────────────────
+# 11:15 — procesa el RecapConsolidadoFOB más reciente. Si no le pasás CONSO,
+# auto-detecta el más nuevo del directorio. Para forzar uno específico:
+#   make recap CONSO=RecapConsolidadoFOB_15-05-2026.xls
 
 recap:
-	@if [ -z "$(CONSO)" ]; then \
-		echo "❌ Falta CONSO=<archivo>. Ejemplo:"; \
-		echo "    make recap CONSO=RecapConsolidadoFOB_15-05-2026.xls"; \
-		echo ""; \
-		echo "Consolidados disponibles en $(RECAP_DIR):"; \
-		ls -1t "$(RECAP_DIR)"/RecapConsolidadoFOB*.xls 2>/dev/null | head -5 | sed 's|.*/|  - |' || echo "  (ninguno)"; \
-		exit 2; \
-	fi
 	@if [ ! -d "$(RECAP_DIR)" ]; then \
 		echo "❌ No existe $(RECAP_DIR). Si la moviste, editá RECAP_DIR en este Makefile."; \
 		exit 1; \
 	fi
-	@if [ ! -f "$(RECAP_DIR)/$(CONSO)" ]; then \
-		echo "❌ No encontré $(CONSO) en $(RECAP_DIR)."; \
-		echo ""; \
-		echo "Consolidados disponibles:"; \
-		ls -1t "$(RECAP_DIR)"/RecapConsolidadoFOB*.xls 2>/dev/null | head -5 | sed 's|.*/|  - |' || echo "  (ninguno)"; \
-		echo ""; \
-		echo "Tip: exportá el RecapConsolidadoFOB nuevo del sistema y pegalo en"; \
-		echo "  $(RECAP_DIR)"; \
-		echo "antes de correr este comando."; \
+	@CONSO_FILE="$(CONSO)"; \
+	if [ -z "$$CONSO_FILE" ]; then \
+		CONSO_FILE=$$(ls -1t "$(RECAP_DIR)"/RecapConsolidadoFOB*.xls 2>/dev/null | head -1 | sed 's|.*/||'); \
+		if [ -z "$$CONSO_FILE" ]; then \
+			echo "❌ No encontré ningún RecapConsolidadoFOB*.xls en $(RECAP_DIR)."; \
+			echo "Exportá el archivo del sistema y pegalo ahí."; \
+			exit 1; \
+		fi; \
+		echo "→ Auto-detectado el último xls: $$CONSO_FILE"; \
+	fi; \
+	if [ ! -f "$(RECAP_DIR)/$$CONSO_FILE" ]; then \
+		echo "❌ No encontré $$CONSO_FILE en $(RECAP_DIR)."; \
 		exit 1; \
-	fi
-	@echo "→ Procesando $(CONSO)..."
-	@cd "$(RECAP_DIR)" && python3 update_totalizado.py "$(CONSO)"
-	@echo "✓ Recap actualizado. Refrescá el browser para ver los números nuevos."
+	fi; \
+	echo "→ Procesando $$CONSO_FILE..."; \
+	cd "$(RECAP_DIR)" && python3 update_totalizado.py "$$CONSO_FILE"; \
+	echo "✓ Recap actualizado. Refrescá el browser para ver los números nuevos."
 
 # ── Status: cuándo fue la última actualización de cada fuente ───────────────
 

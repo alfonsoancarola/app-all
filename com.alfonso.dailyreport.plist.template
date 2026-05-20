@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Launchd plist template para el daily report.
+
+  Instalación:
+    1. cp com.alfonso.dailyreport.plist.template ~/Library/LaunchAgents/com.$(whoami).dailyreport.plist
+    2. Editar el archivo y reemplazar:
+         - {{REPO_DIR}}  → ruta absoluta a "/Users/alfonsoancarola/10. App All"
+         - {{HOME}}      → ruta absoluta a $HOME (`echo $HOME`)
+    3. launchctl load ~/Library/LaunchAgents/com.$(whoami).dailyreport.plist
+    4. (Para forzar primera corrida) launchctl start com.$(whoami).dailyreport
+
+  Para desinstalar:
+    launchctl unload ~/Library/LaunchAgents/com.$(whoami).dailyreport.plist
+
+  Para ver logs:
+    tail -f {{REPO_DIR}}/reports/launchd.log
+    tail -f {{REPO_DIR}}/reports/launchd.err.log
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.alfonso.dailyreport</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>cd "{{REPO_DIR}}" &amp;&amp; /usr/bin/env python3 daily_report.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>{{REPO_DIR}}</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin</string>
+        <key>HOME</key>
+        <string>{{HOME}}</string>
+    </dict>
+
+    <!-- Correr todos los días a las 12:00 (mediodía local) -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>12</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <!-- Si la Mac estaba dormida a las 12:00, lo corre cuando despierte. -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>{{REPO_DIR}}/reports/launchd.log</string>
+    <key>StandardErrorPath</key>
+    <string>{{REPO_DIR}}/reports/launchd.err.log</string>
+</dict>
+</plist>

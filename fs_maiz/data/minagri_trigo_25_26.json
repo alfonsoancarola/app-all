@@ -336,9 +336,16 @@
       "ph_acum_kt": 11142.2,
       "fij_acum_kt": 2014.1,
       "a_fijar_acum_kt": 1758.5
+    },
+    {
+      "fecha": "2026-05-13",
+      "ph_fijado_acum_kt": 13370.9,
+      "ph_acum_kt": 11327.3,
+      "fij_acum_kt": 2043.6,
+      "a_fijar_acum_kt": 1750.4
     }
   ],
-  "_actualizado": "2026-05-06",
-  "_last_file_url": "https://www.magyp.gob.ar/sitio/areas/ss_mercados_agropecuarios/areas/granos/_archivos/000058_Estad%C3%ADsticas/_compras_historicos/2026/01_embarque_2026-05-06.php",
-  "_last_file_sha1": "7b24be64060ed762d4d2be70f937229970482124"
+  "_actualizado": "2026-05-13",
+  "_last_file_url": "https://www.magyp.gob.ar/sitio/areas/ss_mercados_agropecuarios/areas/granos/_archivos/000058_Estad%C3%ADsticas/_compras_historicos/2026/01_embarque_2026-05-13.php",
+  "_last_file_sha1": "030f1791eac0e1c7ab7a860b4b9d88d3dd4a5782"
 }

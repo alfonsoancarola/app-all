@@ -1935,7 +1935,370 @@ if IS_ALL_CROPS:
                             fmt_pct(_fs_now) if _fs_now is not None else "—",
                             delta=_fs_delta)
 
+    # ══════════════════════════════════════════════════════════════════════
+    # 🔍 Estimador mensual · MAGYP + SIO con PH/Fij separados · por cultivo
+    # ══════════════════════════════════════════════════════════════════════
+    st.divider()
+    st.markdown("### 🔍 Estimador mensual · MAGYP + SIO con PH / Fijaciones")
+    st.caption(
+        "Por cada cultivo: descomposición del FS del mes en curso separando "
+        "**Precio Hecho** y **Fijaciones**, mostrando tramo MAGYP "
+        "(último punto del mes anterior → cutoff) y SIO crudo (post-cutoff "
+        "→ ayer). Proyección a fin de mes = acumulado + promedio últimos 10 "
+        "días × días hábiles restantes. Abajo de cada cultivo, target reverso: "
+        "meté un FS objetivo y te calcula qué pace diario hace falta."
+    )
+
+    import json as _val_json
+    from datetime import timedelta as _val_td
+    from calendar import monthrange as _mr_val
+
+    _val_today = _ac_date.today()
+    _val_mo_start = _val_today.replace(day=1)
+    _val_mo_end = _val_today.replace(
+        day=_mr_val(_val_today.year, _val_today.month)[1]
+    )
+
+    # Días hábiles del mes (excluye feriados argentinos)
+    def _val_biz_days_month():
+        any_cfg = next(iter(_ALL_CULTIVOS.values()))
+        dh = (any_cfg.get("daily_mes") or {}).get("dias_habiles", [])
+        return [d for d in dh
+                if d.endswith(f"/{_val_today.month:02d}")]
+
+    def _parse_lbl_val(lbl):
+        try:
+            d, m = str(lbl).split("/")
+            return _ac_date(_val_today.year, int(m), int(d))
+        except Exception:
+            return None
+
+    _val_dh_all = _val_biz_days_month()
+    _val_dh_dates = [d for d in (_parse_lbl_val(x) for x in _val_dh_all)
+                     if d is not None]
+    _val_biz_total = len(_val_dh_dates)
+    _val_biz_past = sum(1 for d in _val_dh_dates if d < _val_today)
+    _val_biz_left = _val_biz_total - _val_biz_past
+
+    @st.cache_data(show_spinner=False)
+    def _load_sio_ph_fij(sio_path: str, slug: str, cosecha: str,
+                          from_iso: str, to_iso: str) -> dict:
+        """Lee `data/sio_diario_ph_fij_<slug>.csv` (lo escribe el pipeline)
+        y devuelve dict {fecha_iso: {ph: tn, fij: tn}} filtrado al rango.
+        IMPORTANTE: los args NO empiezan con '_' para que Streamlit los
+        hashee correctamente (con '_' devolvía el mismo cache a todos los cultivos)."""
+        p = DATA_DIR / f"sio_diario_ph_fij_{slug}.csv"
+        if not p.exists():
+            return {}
+        try:
+            df = pd.read_csv(p)
+        except Exception:
+            return {}
+        f_from = _ac_date.fromisoformat(from_iso)
+        f_to = _ac_date.fromisoformat(to_iso)
+        out: dict = {}
+        for _, row in df.iterrows():
+            try:
+                d = _ac_date.fromisoformat(str(row["fecha"]))
+            except Exception:
+                continue
+            if d < f_from or d > f_to:
+                continue
+            out[d.isoformat()] = {
+                "ph": float(row.get("ph_tn", 0) or 0),
+                "fij": float(row.get("fij_tn", 0) or 0),
+            }
+        return out
+
+    def _load_minagri_pts_full(slug, cosecha="25_26"):
+        """Lista de (date, ph_acum_kt, ph_fij_acum_kt) ordenada del JSON MAGYP.
+        Filtra puntos anómalos donde el acum baja >5% (bad data — el acum
+        es monotónico creciente)."""
+        p = DATA_DIR / f"minagri_{slug}_{cosecha}.json"
+        if not p.exists():
+            return []
+        try:
+            d = _val_json.loads(p.read_text(encoding="utf-8"))
+            raw = []
+            for pt in d.get("serie", []):
+                f = _ac_date.fromisoformat(pt["fecha"])
+                phfij = float(pt.get("ph_fijado_acum_kt", 0) or 0)
+                ph = float(pt.get("ph_acum_kt", 0) or 0)
+                raw.append((f, ph, phfij))
+            raw.sort()
+            clean = []
+            max_phfij = -1.0
+            for f, ph, phfij in raw:
+                if phfij < max_phfij * 0.95:
+                    continue
+                clean.append((f, ph, phfij))
+                if phfij > max_phfij:
+                    max_phfij = phfij
+            return clean
+        except Exception:
+            return []
+
+    def _fmt_tn_ar(v):
+        """Formato argentino: 2.302.402 (puntos miles, sin decimales)."""
+        if v is None:
+            return "—"
+        try:
+            return f"{int(round(float(v))):,}".replace(",", ".")
+        except Exception:
+            return str(v)
+
+    _ayer = _val_today - _val_td(days=1)
+    while _ayer.weekday() >= 5:
+        _ayer -= _val_td(days=1)
+
+    # ── Loop por cultivo ────────────────────────────────────────────────
+    for _v_slug, _v_cfg in _ALL_CULTIVOS.items():
+        st.markdown(
+            f"<div style='font-weight:700;font-size:1.05rem;color:#1d6e51;"
+            f"margin-top:0.8rem;margin-bottom:0.3rem;'>"
+            f"{_v_cfg['emoji']} {_v_cfg['label']}</div>",
+            unsafe_allow_html=True,
+        )
+
+        _pts = _load_minagri_pts_full(_v_slug,
+            _v_cfg.get("cosecha", "25/26").replace("/", "_"))
+        if not _pts:
+            st.caption("Sin JSON MAGYP para este cultivo.")
+            continue
+
+        _last_prev = max((d for d, _, _ in _pts if d < _val_mo_start), default=None)
+        _cutoff = max(d for d, _, _ in _pts)
+        if not _last_prev:
+            st.caption("Sin punto MAGYP previo al mes corriente.")
+            continue
+
+        _lp = next(t for t in _pts if t[0] == _last_prev)
+        _co = next(t for t in _pts if t[0] == _cutoff)
+        _lp_ph_tn = _lp[1] * 1000
+        _lp_phfij_tn = _lp[2] * 1000
+        _lp_fij_tn = _lp_phfij_tn - _lp_ph_tn
+        _co_ph_tn = _co[1] * 1000
+        _co_phfij_tn = _co[2] * 1000
+        _co_fij_tn = _co_phfij_tn - _co_ph_tn
+
+        _dt_ph_tn = _co_ph_tn - _lp_ph_tn
+        _dt_fij_tn = _co_fij_tn - _lp_fij_tn
+        _dt_phfij_tn = _co_phfij_tn - _lp_phfij_tn
+
+        _total_days = max(1, (_cutoff - _last_prev).days)
+        _days_out = max(0, (_val_mo_start - _last_prev).days - 1)
+        _days_in = _total_days - _days_out
+
+        _avg_ph_tnd = _dt_ph_tn / _total_days
+        _avg_fij_tnd = _dt_fij_tn / _total_days
+
+        _month_magyp_ph_tn = _avg_ph_tnd * _days_in
+        _month_magyp_fij_tn = _avg_fij_tnd * _days_in
+
+        # SIO post-cutoff
+        _sio_path = str(DATA_DIR / "sio_historico.csv")
+        if _cutoff + _val_td(days=1) <= _ayer:
+            _sio_data = _load_sio_ph_fij(
+                _sio_path, _v_slug,
+                _v_cfg.get("cosecha", "25/26"),
+                (_cutoff + _val_td(days=1)).isoformat(),
+                _ayer.isoformat(),
+            )
+        else:
+            _sio_data = {}
+        _sio_ph_tn = sum(v["ph"] for v in _sio_data.values())
+        _sio_fij_tn = sum(v["fij"] for v in _sio_data.values())
+        _days_sio = sum(1 for d in _val_dh_dates
+                         if d > _cutoff and d <= _ayer)
+
+        _acum_ph_tn = _month_magyp_ph_tn + _sio_ph_tn
+        _acum_fij_tn = _month_magyp_fij_tn + _sio_fij_tn
+
+        # Promedio últimos N días hábiles SIO (post-cutoff)
+        _biz_dh_in_window = [d for d in _val_dh_dates
+                              if d > _cutoff and d <= _ayer]
+        _last10_dh = _biz_dh_in_window[-10:]
+        _n_last10 = len(_last10_dh)
+        _last10_sum_ph = sum(_sio_data.get(d.isoformat(), {"ph": 0})["ph"]
+                              for d in _last10_dh)
+        _last10_sum_fij = sum(_sio_data.get(d.isoformat(), {"fij": 0})["fij"]
+                               for d in _last10_dh)
+        _avg10_ph_tnd = _last10_sum_ph / _n_last10 if _n_last10 else 0
+        _avg10_fij_tnd = _last10_sum_fij / _n_last10 if _n_last10 else 0
+
+        _biz_left = _val_biz_left
+        _proj_ph_tn = _acum_ph_tn + _avg10_ph_tnd * _biz_left
+        _proj_fij_tn = _acum_fij_tn + _avg10_fij_tnd * _biz_left
+        _proj_total_tn = _proj_ph_tn + _proj_fij_tn
+
+        # ── Helper row con 3 columnas ──
+        def _row_3col(label, val_ph, val_fij, val_total=None,
+                       fmt="tn", color_label="#666", sub_label=None):
+            c = st.columns([2.6, 1.2, 1.2, 1.2])
+            sub_html = (f"<br/><span style='color:#999;font-size:0.75rem'>"
+                          f"{sub_label}</span>") if sub_label else ""
+            c[0].markdown(
+                f"<span style='color:{color_label}'><b>{label}</b></span>{sub_html}",
+                unsafe_allow_html=True,
+            )
+            def _fmt(v):
+                if v is None: return "—"
+                if fmt == "d": return f"{int(v)} d"
+                if fmt == "tn/d": return _fmt_tn_ar(v) + " /d"
+                return _fmt_tn_ar(v)
+            c[1].markdown(f"<div style='text-align:center'>{_fmt(val_ph)}</div>",
+                            unsafe_allow_html=True)
+            c[2].markdown(f"<div style='text-align:center'>{_fmt(val_fij)}</div>",
+                            unsafe_allow_html=True)
+            tot_str = (_fmt(val_total) if val_total is not None
+                          else (_fmt((val_ph + val_fij) if (val_ph is not None
+                                  and val_fij is not None) else None)))
+            c[3].markdown(f"<div style='text-align:center'><b>{tot_str}</b></div>",
+                            unsafe_allow_html=True)
+
+        # Header
+        _h = st.columns([2.6, 1.2, 1.2, 1.2])
+        _h[0].markdown("**Concepto**")
+        _h[1].markdown("<div style='text-align:center'><b>Precio Hecho</b></div>",
+                         unsafe_allow_html=True)
+        _h[2].markdown("<div style='text-align:center'><b>Fijado</b></div>",
+                         unsafe_allow_html=True)
+        _h[3].markdown("<div style='text-align:center'><b>Total (PH+Fij)</b></div>",
+                         unsafe_allow_html=True)
+        st.markdown("<div style='border-bottom:1px solid #ddd;margin:0.1rem 0 0.3rem 0'></div>",
+                       unsafe_allow_html=True)
+
+        _row_3col(f"Último ant. — acum. al {_last_prev.strftime('%d/%m')}",
+                    _lp_ph_tn, _lp_fij_tn, _lp_phfij_tn)
+        _row_3col(f"Cutoff — acum. al {_cutoff.strftime('%d/%m')}",
+                    _co_ph_tn, _co_fij_tn, _co_phfij_tn)
+        _row_3col(f"Δ tramo ({_last_prev.strftime('%d/%m')} → {_cutoff.strftime('%d/%m')})",
+                    _dt_ph_tn, _dt_fij_tn, _dt_phfij_tn)
+
+        st.markdown("<div style='border-bottom:1px solid #f0f0f0;margin:0.3rem 0 0.3rem 0'></div>",
+                       unsafe_allow_html=True)
+        c_d = st.columns([2.6, 1.2, 1.2, 1.2])
+        c_d[0].markdown(
+            f"<b>Días fuera del mes corriente</b> "
+            f"<span style='color:#999;font-size:0.75rem'>"
+            f"({_last_prev.strftime('%d/%m')} → {_val_mo_start.strftime('%d/%m')})</span>",
+            unsafe_allow_html=True)
+        for i in (1, 2, 3):
+            c_d[i].markdown(f"<div style='text-align:center'>"
+                              f"{'<b>' if i == 3 else ''}{_days_out} d"
+                              f"{'</b>' if i == 3 else ''}</div>",
+                              unsafe_allow_html=True)
+        c_d = st.columns([2.6, 1.2, 1.2, 1.2])
+        c_d[0].markdown(
+            f"<b>Días dentro del mes corriente</b> "
+            f"<span style='color:#999;font-size:0.75rem'>"
+            f"({_val_mo_start.strftime('%d/%m')} → {_cutoff.strftime('%d/%m')})</span>",
+            unsafe_allow_html=True)
+        for i in (1, 2, 3):
+            c_d[i].markdown(f"<div style='text-align:center'>"
+                              f"{'<b>' if i == 3 else ''}{_days_in} d"
+                              f"{'</b>' if i == 3 else ''}</div>",
+                              unsafe_allow_html=True)
+
+        _row_3col(f"Promedio diario tramo (Δ / {_total_days}d)",
+                    _avg_ph_tnd, _avg_fij_tnd,
+                    _avg_ph_tnd + _avg_fij_tnd, fmt="tn/d")
+        _row_3col(f"Total mes MAGYP (promedio × {_days_in}d)",
+                    _month_magyp_ph_tn, _month_magyp_fij_tn,
+                    _month_magyp_ph_tn + _month_magyp_fij_tn,
+                    color_label="#1d6e51")
+
+        st.markdown("<div style='border-bottom:1px solid #f0f0f0;margin:0.3rem 0 0.3rem 0'></div>",
+                       unsafe_allow_html=True)
+        _row_3col(f"Días cutoff → ayer "
+                    f"({(_cutoff + _val_td(days=1)).strftime('%d/%m')} → {_ayer.strftime('%d/%m')})",
+                    _days_sio, _days_sio, _days_sio, fmt="d")
+        _row_3col("SIO crudo (post-cutoff, sin escala)",
+                    _sio_ph_tn, _sio_fij_tn,
+                    _sio_ph_tn + _sio_fij_tn, color_label="#1565C0")
+        if _days_sio > 0:
+            _row_3col(f"Promedio diario SIO (total / {_days_sio}d)",
+                        _sio_ph_tn / _days_sio, _sio_fij_tn / _days_sio,
+                        (_sio_ph_tn + _sio_fij_tn) / _days_sio,
+                        fmt="tn/d", color_label="#1565C0")
+
+        st.markdown("<div style='border-bottom:1px solid #f0f0f0;margin:0.3rem 0 0.3rem 0'></div>",
+                       unsafe_allow_html=True)
+        _row_3col("Acumulado mes actual (MAGYP + SIO)",
+                    _acum_ph_tn, _acum_fij_tn,
+                    _acum_ph_tn + _acum_fij_tn)
+
+        st.markdown("<div style='border-bottom:1px solid #f0f0f0;margin:0.3rem 0 0.3rem 0'></div>",
+                       unsafe_allow_html=True)
+        _row_3col(f"Días hábiles restantes del mes (incl. hoy)",
+                    _biz_left, _biz_left, _biz_left, fmt="d")
+        _row_3col(f"Promedio últimos {_n_last10} días SIO (post-cutoff)",
+                    _avg10_ph_tnd, _avg10_fij_tnd,
+                    _avg10_ph_tnd + _avg10_fij_tnd, fmt="tn/d")
+        _row_3col(f"Proyectado a fin de mes (acum + prom × restantes)",
+                    _proj_ph_tn, _proj_fij_tn, _proj_total_tn,
+                    color_label="#1d6e51")
+
+        st.markdown(
+            f"<div style='background:rgba(29,158,117,0.10);padding:0.5rem;"
+            f"border-radius:6px;margin-top:0.4rem;text-align:center;'>"
+            f"<span style='color:#666'>Proyectado mensual total: </span>"
+            f"<b style='color:#1d6e51;font-size:1.15rem'>"
+            f"{_fmt_tn_ar(_proj_total_tn)} tn</b>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
+        # ── Target reverso ──
+        st.markdown(
+            "<div style='margin-top:0.5rem;font-size:0.85rem;color:#666'>"
+            "<b>🎯 Target reverso · meté un FS objetivo y te calculo el pace</b></div>",
+            unsafe_allow_html=True,
+        )
+        _pace_cols = st.columns([1.6, 1.4, 1.6, 1.6])
+        _target_default = int(round(_proj_total_tn))
+        with _pace_cols[0]:
+            _target_fs = st.number_input(
+                f"Target FS · {_v_cfg['label']}",
+                min_value=0, value=_target_default, step=10000,
+                key=f"target_fs_{_v_slug}",
+                label_visibility="collapsed",
+            )
+        _acum_total_tn = _acum_ph_tn + _acum_fij_tn
+        _falta = _target_fs - _acum_total_tn
+        _pace_needed = max(0, _falta) / _biz_left if _biz_left > 0 else 0
+        _pace_actual = _avg10_ph_tnd + _avg10_fij_tnd
+        _pace_diff = _pace_needed - _pace_actual
+        _pace_color = "#a32d2d" if _pace_diff > 0 else "#1d6e51"
+
+        _pace_cols[1].markdown(
+            f"<div style='text-align:center;font-size:0.78rem;color:#999;line-height:1.1'>"
+            f"Target FS<br/>"
+            f"<span style='color:#222;font-size:1rem;font-weight:600'>"
+            f"{_fmt_tn_ar(_target_fs)} tn</span></div>",
+            unsafe_allow_html=True)
+        _pace_cols[2].markdown(
+            f"<div style='text-align:center;font-size:0.78rem;color:#999;line-height:1.1'>"
+            f"Falta / {_biz_left} días hábiles<br/>"
+            f"<span style='color:#222;font-size:1rem;font-weight:600'>"
+            f"{_fmt_tn_ar(_falta)} tn → {_biz_left}d</span></div>",
+            unsafe_allow_html=True)
+        _pace_cols[3].markdown(
+            f"<div style='background:rgba(123,63,184,0.10);padding:0.4rem;"
+            f"border-radius:6px;text-align:center;line-height:1.2;'>"
+            f"<span style='color:#666;font-size:0.7rem'>Pace diario necesario (PH+Fij)</span><br/>"
+            f"<b style='color:#7B3FB8;font-size:1.15rem'>"
+            f"{_fmt_tn_ar(_pace_needed)} /d</b><br/>"
+            f"<span style='color:{_pace_color};font-size:0.75rem;font-weight:600'>"
+            f"{('+' if _pace_diff >= 0 else '')}{_fmt_tn_ar(_pace_diff)} /d "
+            f"vs ritmo actual ({_fmt_tn_ar(_pace_actual)} /d)"
+            f"</span></div>",
+            unsafe_allow_html=True)
+
+        st.markdown("<div style='margin-bottom:1rem'></div>", unsafe_allow_html=True)
+
     st.stop()
+
 
 
 # ── Carga de datos ────────────────────────────────────────────────────────────
