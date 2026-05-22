@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-05-21",
+  "updated_at": "2026-05-22",
   "config": {
     "retention": {
       "maiz": 0.085,
@@ -23,19 +23,19 @@
   },
   "pizarra_usd_tn": {
     "maiz": {
-      "today": 185.0,
+      "today": 183.27,
       "yesterday": 185.0,
-      "as_of": "2026-05-20"
+      "as_of": "2026-05-21"
     },
     "sorgo": {
       "today": 195.0,
-      "yesterday": 196.18,
-      "as_of": "2026-05-20"
+      "yesterday": 195.0,
+      "as_of": "2026-05-21"
     },
     "trigo": {
-      "today": 215.0,
-      "yesterday": 216.99,
-      "as_of": "2026-05-20"
+      "today": 211.01,
+      "yesterday": 215.0,
+      "as_of": "2026-05-21"
     },
     "cebada": {
       "today": null,
@@ -59,30 +59,68 @@
   },
   "minagri_fob_usd_tn": {
     "maiz": {
-      "cercano": 212,
-      "cosecha_nva": 228
+      "cercano": 209,
+      "cosecha_nva": 225
     },
     "sorgo": {
       "cercano": 232,
       "cosecha_nva": null
     },
     "trigo": {
-      "cercano": 237,
-      "cosecha_nva": 248
+      "cercano": 229,
+      "cosecha_nva": 243
     },
     "cebada": {
       "cercano": 240,
       "cosecha_nva": null
     },
-    "as_of": "2026-05-20"
+    "as_of": "2026-05-21"
   },
   "boletin": {
-    "number": "19063",
-    "date_iso": "2026-05-20",
-    "pizarra_date_iso": "2026-05-19"
+    "number": "19064",
+    "date_iso": "2026-05-21",
+    "pizarra_date_iso": "2026-05-20"
   },
-  "tc_bna_compra": 1398.8346,
+  "tc_bna_compra": 1392.1705,
   "mat_usd_tn": {
+    "maiz": {
+      "MAY26": 184.5,
+      "JUN26": 183.5,
+      "JUL26": 182.7,
+      "SEP26": 187.3,
+      "DIC26": 193.6,
+      "ABR27": 193.2,
+      "JUL27": 188.1
+    },
+    "trigo": {
+      "MAY26": 224.0,
+      "JUL26": 225.1,
+      "DIC26": 227.0,
+      "ENE27": 229.5
+    },
+    "sorgo": {},
+    "as_of": "2026-05-21"
+  },
+  "cbot_usd_tn": {
+    "corn": {
+      "Jul-26": 182.0,
+      "Sep-26": 184.4,
+      "Dic-26": 190.9
+    },
+    "wheat_chicago": {
+      "Jul-26": 237.9,
+      "Sep-26": 242.9,
+      "Dic-26": 250.1
+    },
+    "wheat_kansas": {
+      "Jul-26": 252.4,
+      "Sep-26": 256.4,
+      "Dic-26": 262.1
+    },
+    "as_of": "2026-05-21"
+  },
+  "pizarra_source": "cac",
+  "mat_usd_tn_prev": {
     "maiz": {
       "MAY26": 185.1,
       "JUN26": 184.5,
@@ -101,7 +139,7 @@
     "sorgo": {},
     "as_of": "2026-05-20"
   },
-  "cbot_usd_tn": {
+  "cbot_usd_tn_prev": {
     "corn": {
       "Jul-26": 183.4,
       "Sep-26": 186.0
@@ -116,59 +154,9 @@
     },
     "as_of": "2026-05-20"
   },
-  "pizarra_source": "cac",
-  "mat_usd_tn_prev": {
-    "maiz": {
-      "MAY26": 186.5,
-      "JUN26": 186.0,
-      "JUL26": 185.6,
-      "SEP26": 190.0,
-      "DIC26": 196.8,
-      "ABR27": 197.0,
-      "JUL27": 192.3
-    },
-    "trigo": {
-      "MAY26": 225.0,
-      "JUL26": 231.5,
-      "DIC26": 230.6,
-      "ENE27": 232.8
-    },
-    "sorgo": {},
-    "as_of": "2026-05-19"
-  },
-  "cbot_usd_tn_prev": {
-    "corn": {
-      "Jul-26": 187.1,
-      "Sep-26": 189.6,
-      "Dic-26": 196.0,
-      "Mar-27": 201.3,
-      "May-27": 204.1,
-      "Jul-27": 205.4,
-      "Sep-27": 196.4
-    },
-    "wheat_chicago": {
-      "Jul-26": 245.2,
-      "Sep-26": 250.0,
-      "Dic-26": 256.8,
-      "Mar-27": 262.2,
-      "May-27": 264.5,
-      "Jul-27": 263.5,
-      "Sep-27": 265.4
-    },
-    "wheat_kansas": {
-      "Jul-26": 258.6,
-      "Sep-26": 262.4,
-      "Dic-26": 267.2,
-      "Mar-27": 270.8,
-      "May-27": 272.1,
-      "Jul-27": 270.5,
-      "Sep-27": 271.9
-    },
-    "as_of": "2026-05-19"
-  },
   "minagri_fob_usd_tn_prev": {
     "maiz": {
-      "cercano": 214,
+      "cercano": 212,
       "cosecha_nva": 228
     },
     "sorgo": {
@@ -176,13 +164,13 @@
       "cosecha_nva": null
     },
     "trigo": {
-      "cercano": 240,
+      "cercano": 237,
       "cosecha_nva": 248
     },
     "cebada": {
       "cercano": 240,
       "cosecha_nva": null
     },
-    "as_of": "2026-05-19"
+    "as_of": "2026-05-20"
   }
 }
