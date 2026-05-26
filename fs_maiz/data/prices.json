@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-05-25",
+  "updated_at": "2026-05-26",
   "config": {
     "retention": {
       "maiz": 0.085,
@@ -23,19 +23,19 @@
   },
   "pizarra_usd_tn": {
     "maiz": {
-      "today": 183.27,
-      "yesterday": 185.0,
-      "as_of": "2026-05-21"
+      "today": 182.21,
+      "yesterday": 183.27,
+      "as_of": "2026-05-22"
     },
     "sorgo": {
       "today": 195.0,
       "yesterday": 195.0,
-      "as_of": "2026-05-21"
+      "as_of": "2026-05-22"
     },
     "trigo": {
-      "today": 211.01,
-      "yesterday": 215.0,
-      "as_of": "2026-05-21"
+      "today": 210.0,
+      "yesterday": 211.01,
+      "as_of": "2026-05-22"
     },
     "cebada": {
       "today": null,
