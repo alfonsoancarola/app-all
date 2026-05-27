@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-05-26",
+  "updated_at": "2026-05-27",
   "config": {
     "retention": {
       "maiz": 0.085,
@@ -23,19 +23,19 @@
   },
   "pizarra_usd_tn": {
     "maiz": {
-      "today": 182.21,
-      "yesterday": 183.27,
-      "as_of": "2026-05-22"
+      "today": 181.5,
+      "yesterday": 182.21,
+      "as_of": "2026-05-26"
     },
     "sorgo": {
-      "today": 195.0,
+      "today": 193.01,
       "yesterday": 195.0,
-      "as_of": "2026-05-22"
+      "as_of": "2026-05-26"
     },
     "trigo": {
-      "today": 210.0,
-      "yesterday": 211.01,
-      "as_of": "2026-05-22"
+      "today": 213.05,
+      "yesterday": 210.0,
+      "as_of": "2026-05-26"
     },
     "cebada": {
       "today": null,
@@ -59,30 +59,92 @@
   },
   "minagri_fob_usd_tn": {
     "maiz": {
-      "cercano": 208,
-      "cosecha_nva": 220
+      "cercano": 207,
+      "cosecha_nva": 221
     },
     "sorgo": {
       "cercano": 232,
       "cosecha_nva": null
     },
     "trigo": {
-      "cercano": 229,
-      "cosecha_nva": 243
+      "cercano": 231,
+      "cosecha_nva": 247
     },
     "cebada": {
-      "cercano": 240,
+      "cercano": 235,
       "cosecha_nva": null
     },
-    "as_of": "2026-05-22"
+    "as_of": "2026-05-26"
   },
   "boletin": {
-    "number": "19065",
-    "date_iso": "2026-05-22",
-    "pizarra_date_iso": "2026-05-21"
+    "number": "19066",
+    "date_iso": "2026-05-26",
+    "pizarra_date_iso": "2026-05-25"
   },
-  "tc_bna_compra": 1393.5019,
+  "tc_bna_compra": 1407.8893,
   "mat_usd_tn": {
+    "maiz": {
+      "JUN26": 183.0,
+      "JUL26": 182.6,
+      "SEP26": 187.3,
+      "DIC26": 193.6,
+      "ABR27": 194.2,
+      "JUL27": 190.5
+    },
+    "trigo": {
+      "JUL26": 226.0,
+      "DIC26": 228.0,
+      "ENE27": 230.4
+    },
+    "sorgo": {},
+    "as_of": "2026-05-26"
+  },
+  "cbot_usd_tn": {
+    "corn": {
+      "Jul-26": 180.1,
+      "Sep-26": 182.8,
+      "Dic-26": 189.8,
+      "Mar-27": 195.5,
+      "May-27": 198.4,
+      "Jul-27": 199.9,
+      "Sep-27": 192.8,
+      "Dic-27": 194.6,
+      "Mar-28": 198.6,
+      "May-28": 200.7,
+      "Jul-28": 201.5,
+      "Sep-28": 188.8,
+      "Dic-28": 190.0
+    },
+    "wheat_chicago": {
+      "Jul-26": 233.5,
+      "Sep-26": 238.2,
+      "Dic-26": 245.6,
+      "Mar-27": 251.9,
+      "May-27": 255.2,
+      "Jul-27": 256.6,
+      "Sep-27": 259.4,
+      "Dic-27": 263.9,
+      "Mar-28": 266.9,
+      "May-28": 265.8,
+      "Jul-28": 256.8
+    },
+    "wheat_kansas": {
+      "Jul-26": 248.5,
+      "Sep-26": 252.8,
+      "Dic-26": 258.8,
+      "Mar-27": 263.5,
+      "May-27": 265.8,
+      "Jul-27": 266.7,
+      "Sep-27": 269.5,
+      "Dic-27": 273.8,
+      "Mar-28": 275.8,
+      "May-28": 271.0,
+      "Jul-28": 259.2
+    },
+    "as_of": "2026-05-26"
+  },
+  "pizarra_source": "cac",
+  "mat_usd_tn_prev": {
     "maiz": {
       "JUN26": 184.0,
       "JUL26": 183.6,
@@ -99,7 +161,7 @@
     "sorgo": {},
     "as_of": "2026-05-22"
   },
-  "cbot_usd_tn": {
+  "cbot_usd_tn_prev": {
     "corn": {
       "Jul-26": 182.4,
       "Sep-26": 184.9,
@@ -129,48 +191,10 @@
     },
     "as_of": "2026-05-22"
   },
-  "pizarra_source": "cac",
-  "mat_usd_tn_prev": {
-    "maiz": {
-      "MAY26": 184.5,
-      "JUN26": 183.5,
-      "JUL26": 182.7,
-      "SEP26": 187.3,
-      "DIC26": 193.6,
-      "ABR27": 193.2,
-      "JUL27": 188.1
-    },
-    "trigo": {
-      "MAY26": 224.0,
-      "JUL26": 225.1,
-      "DIC26": 227.0,
-      "ENE27": 229.5
-    },
-    "sorgo": {},
-    "as_of": "2026-05-21"
-  },
-  "cbot_usd_tn_prev": {
-    "corn": {
-      "Jul-26": 182.0,
-      "Sep-26": 184.4,
-      "Dic-26": 190.9
-    },
-    "wheat_chicago": {
-      "Jul-26": 237.9,
-      "Sep-26": 242.9,
-      "Dic-26": 250.1
-    },
-    "wheat_kansas": {
-      "Jul-26": 252.4,
-      "Sep-26": 256.4,
-      "Dic-26": 262.1
-    },
-    "as_of": "2026-05-21"
-  },
   "minagri_fob_usd_tn_prev": {
     "maiz": {
-      "cercano": 209,
-      "cosecha_nva": 225
+      "cercano": 208,
+      "cosecha_nva": 220
     },
     "sorgo": {
       "cercano": 232,
@@ -184,6 +208,6 @@
       "cercano": 240,
       "cosecha_nva": null
     },
-    "as_of": "2026-05-21"
+    "as_of": "2026-05-22"
   }
 }
